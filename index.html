@@ -11,7 +11,6 @@
         button { padding: 14px 20px; font-size: 16px; border: none; border-radius: 12px; font-weight: bold; width: 100%; cursor: pointer; transition: 0.2s; }
         .btn-connect { background: #007bff; color: white; box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
         .btn-off { background: #ff3b30; color: white; margin-top: 10px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
         label { display: block; text-align: left; font-size: 13px; color: #aaa; margin: 12px 0 4px 0; font-weight: 600; text-transform: uppercase; }
         input[type="range"] { width: 100%; height: 8px; border-radius: 4px; background: #333; outline: none; }
         input[type="color"] { width: 100%; height: 50px; border: none; border-radius: 8px; background: none; cursor: pointer; }
@@ -26,40 +25,46 @@
 
     <div class="card" style="margin-top: 15px;">
         <button class="btn-connect" onclick="connectBLE()">Connect to Board</button>
-        <button class="btn-off" onclick="setColor(0, 0, 0)">Power Off</button>
+        <button class="btn-off" onclick="powerOff()">Power Off</button>
     </div>
 
     <!-- Solid Color & Brightness -->
     <div class="card">
         <label>Custom Color Wheel</label>
-        <input type="color" id="colorPicker" value="#00f0ff" onchange="updateColor()">
+        <input type="color" id="colorPicker" value="#00f0ff" oninput="updateColor()">
 
         <label>Brightness</label>
-        <input type="range" id="brightness" min="0" max="255" value="255" onchange="updateColor()">
+        <input type="range" id="brightness" min="0" max="255" value="255" oninput="updateColor()">
     </div>
 
     <!-- Dynamic Modes & Speed -->
     <div class="card">
-        <label>Built-in Animation Effects</label>
+        <label>Animation Mode</label>
         <select id="modeSelect" onchange="applyMode()">
-            <optgroup label="Multi-Color Effects">
+            <optgroup label="Multi-Color Animations">
                 <option value="87">Seven Color Cross Fade</option>
                 <option value="88">Seven Color Strobe</option>
-                <option value="8B">Seven Color Flash Jump</option>
-                <option value="8C">Three Color Flash Jump</option>
+                <option value="89">Seven Color Jump</option>
+                <option value="8A">Three Color Jump</option>
             </optgroup>
-            <optgroup label="Pulse / Breathing Modes">
-                <option value="80">Red Pulse</option>
-                <option value="81">Green Pulse</option>
-                <option value="82">Blue Pulse</option>
-                <option value="83">Yellow Pulse</option>
-                <option value="84">Cyan Pulse</option>
-                <option value="85">Purple Pulse</option>
-                <option value="86">White Pulse</option>
+            <optgroup label="Single Color Breathing / Pulse">
+                <option value="80">Red Breathing</option>
+                <option value="81">Green Breathing</option>
+                <option value="82">Blue Breathing</option>
+                <option value="83">Yellow Breathing</option>
+                <option value="84">Cyan Breathing</option>
+                <option value="85">Purple Breathing</option>
+                <option value="86">White Breathing</option>
+            </optgroup>
+            <optgroup label="Alternative Mode Map (For MELK Chips)">
+                <option value="25">7 Color Fade (Alt)</option>
+                <option value="26">Red Pulse (Alt)</option>
+                <option value="27">Green Pulse (Alt)</option>
+                <option value="28">Blue Pulse (Alt)</option>
             </optgroup>
         </select>
 
-        <label>Effect Speed</label>
+        <label>Animation Speed</label>
         <input type="range" id="speed" min="1" max="255" value="128" onchange="applyMode()">
     </div>
 
@@ -98,6 +103,15 @@
             } catch (e) {
                 console.error("Send failed", e);
             }
+        }
+
+        function powerOff() {
+            // First send pure black with 0 brightness
+            setColor(0, 0, 0, 0);
+            // Backup power-off packet for ELK hardware
+            setTimeout(() => {
+                sendHex("7e04040000000000ef");
+            }, 100);
         }
 
         function updateColor() {
