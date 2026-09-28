@@ -3,30 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Skateboard Light Control</title>
+    <title>Skateboard Pro Controller</title>
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; background: #121212; color: #fff; padding: 20px; }
-        button { padding: 16px 24px; font-size: 18px; margin: 8px; border: none; border-radius: 12px; font-weight: bold; width: 80%; max-width: 300px; cursor: pointer; }
-        .btn-connect { background: #007bff; color: white; margin-bottom: 20px; }
-        .btn-red { background: #ff3b30; color: white; }
-        .btn-green { background: #34c759; color: white; }
-        .btn-blue { background: #007aff; color: white; }
-        .btn-rainbow { background: linear-gradient(90deg, red, yellow, green, cyan, blue, magenta); color: white; }
-        .btn-off { background: #333; color: #888; }
-        #status { margin: 15px; color: #888; font-size: 14px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0e0e10; color: #fff; padding: 20px; max-width: 480px; margin: 0 auto; text-align: center; }
+        h1 { font-size: 22px; margin-bottom: 5px; color: #00f0ff; text-transform: uppercase; letter-spacing: 1px; }
+        .card { background: #18181c; border-radius: 16px; padding: 18px; margin-bottom: 16px; border: 1px solid #282830; }
+        button { padding: 14px 20px; font-size: 16px; border: none; border-radius: 12px; font-weight: bold; width: 100%; cursor: pointer; transition: 0.2s; }
+        .btn-connect { background: #007bff; color: white; box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
+        .btn-off { background: #ff3b30; color: white; margin-top: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        label { display: block; text-align: left; font-size: 13px; color: #aaa; margin: 12px 0 4px 0; font-weight: 600; text-transform: uppercase; }
+        input[type="range"] { width: 100%; height: 8px; border-radius: 4px; background: #333; outline: none; }
+        input[type="color"] { width: 100%; height: 50px; border: none; border-radius: 8px; background: none; cursor: pointer; }
+        select { width: 100%; padding: 12px; background: #22222a; color: #fff; border: 1px solid #444; border-radius: 10px; font-size: 15px; }
+        #status { font-size: 13px; color: #888; margin-top: 8px; font-weight: 600; }
     </style>
 </head>
 <body>
-    <h1>🛹 Skateboard Lights</h1>
-    <button class="btn-connect" onclick="connectBLE()">Connect to Lights</button>
+
+    <h1>🛹 Skateboard Pro</h1>
     <div id="status">Status: Disconnected</div>
-    <hr style="border-color: #222; margin: 20px 0;">
-    <div>
-        <button class="btn-red" onclick="setColor(255, 0, 0)">Red</button>
-        <button class="btn-green" onclick="setColor(0, 255, 0)">Green</button>
-        <button class="btn-blue" onclick="setColor(0, 0, 255)">Blue</button>
-        <button class="btn-rainbow" onclick="sendHex('7e05038703000000ef')">Rainbow Effect</button>
-        <button class="btn-off" onclick="setColor(0, 0, 0)">Turn Off</button>
+
+    <div class="card" style="margin-top: 15px;">
+        <button class="btn-connect" onclick="connectBLE()">Connect to Board</button>
+        <button class="btn-off" onclick="setColor(0, 0, 0)">Power Off</button>
+    </div>
+
+    <!-- Solid Color & Brightness -->
+    <div class="card">
+        <label>Custom Color Wheel</label>
+        <input type="color" id="colorPicker" value="#00f0ff" onchange="updateColor()">
+
+        <label>Brightness</label>
+        <input type="range" id="brightness" min="0" max="255" value="255" onchange="updateColor()">
+    </div>
+
+    <!-- Dynamic Modes & Speed -->
+    <div class="card">
+        <label>Built-in Animation Effects</label>
+        <select id="modeSelect" onchange="applyMode()">
+            <optgroup label="Multi-Color Effects">
+                <option value="87">Seven Color Cross Fade</option>
+                <option value="88">Seven Color Strobe</option>
+                <option value="8B">Seven Color Flash Jump</option>
+                <option value="8C">Three Color Flash Jump</option>
+            </optgroup>
+            <optgroup label="Pulse / Breathing Modes">
+                <option value="80">Red Pulse</option>
+                <option value="81">Green Pulse</option>
+                <option value="82">Blue Pulse</option>
+                <option value="83">Yellow Pulse</option>
+                <option value="84">Cyan Pulse</option>
+                <option value="85">Purple Pulse</option>
+                <option value="86">White Pulse</option>
+            </optgroup>
+        </select>
+
+        <label>Effect Speed</label>
+        <input type="range" id="speed" min="1" max="255" value="128" onchange="applyMode()">
     </div>
 
     <script>
@@ -36,8 +70,6 @@
             const statusDiv = document.getElementById('status');
             try {
                 statusDiv.innerText = "Searching...";
-                
-                // Bluefy compatible scan request
                 bleDevice = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
@@ -50,31 +82,51 @@
                 const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
                 bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
 
-                statusDiv.innerText = "Connected to " + (bleDevice.name || "Lights") + "!";
-                statusDiv.style.color = "#34c759";
+                statusDiv.innerText = "CONNECTED: " + (bleDevice.name || "Skateboard Lights");
+                statusDiv.style.color = "#00f0ff";
             } catch (error) {
-                console.error(error);
                 statusDiv.innerText = "Error: " + (error.message || "Failed to pair");
                 statusDiv.style.color = "#ff3b30";
-                alert("Connection failed. Make sure nRF Connect is force-closed!");
             }
         }
 
         async function sendHex(hexString) {
-            if (!bleCharacteristic) return alert("Please tap 'Connect to Lights' first!");
+            if (!bleCharacteristic) return;
             try {
                 const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
                 await bleCharacteristic.writeValue(bytes);
             } catch (e) {
-                alert("Send failed: " + e.message);
+                console.error("Send failed", e);
             }
         }
 
-        function setColor(r, g, b) {
+        function updateColor() {
+            const hex = document.getElementById('colorPicker').value;
+            const r = parseInt(hex.substr(1, 2), 16);
+            const g = parseInt(hex.substr(3, 2), 16);
+            const b = parseInt(hex.substr(5, 2), 16);
+            const brightness = parseInt(document.getElementById('brightness').value);
+
+            setColor(r, g, b, brightness);
+        }
+
+        function setColor(r, g, b, bright = 255) {
             const hexR = r.toString(16).padStart(2, '0');
             const hexG = g.toString(16).padStart(2, '0');
             const hexB = b.toString(16).padStart(2, '0');
-            sendHex(`7e070503${hexR}${hexG}${hexB}00ef`);
+            const hexBright = bright.toString(16).padStart(2, '0');
+            
+            // Format: 7e 07 05 03 R G B Brightness 00 ef
+            sendHex(`7e070503${hexR}${hexG}${hexB}${hexBright}00ef`);
+        }
+
+        function applyMode() {
+            const modeHex = document.getElementById('modeSelect').value;
+            const speed = parseInt(document.getElementById('speed').value);
+            const hexSpeed = speed.toString(16).padStart(2, '0');
+
+            // Format: 7e 05 03 [Mode] [Speed] 00 00 00 ef
+            sendHex(`7e0503${modeHex}${hexSpeed}000000ef`);
         }
     </script>
 </body>
