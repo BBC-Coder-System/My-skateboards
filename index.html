@@ -35,49 +35,39 @@
         async function connectBLE() {
             const statusDiv = document.getElementById('status');
             try {
-                statusDiv.innerText = "Searching for board...";
+                statusDiv.innerText = "Searching...";
                 
-                // Specifically filter for MELK or allow FFF0 service without acceptAllDevices bug
+                // Bluefy compatible scan request
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [
-                        { namePrefix: 'MELK' },
-                        { namePrefix: 'ELK' },
-                        { services: [0xFFF0] }
-                    ],
-                    optionalServices: [0xFFF0, '0000fff0-0000-1000-8000-00805f9b34fb']
+                    acceptAllDevices: true,
+                    optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
                 });
 
-                statusDiv.innerText = "Connecting to GATT...";
+                statusDiv.innerText = "Connecting...";
                 const server = await bleDevice.gatt.connect();
 
-                statusDiv.innerText = "Getting Service...";
-                let service;
-                try {
-                    service = await server.getPrimaryService(0xFFF0);
-                } catch(e) {
-                    service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
-                }
+                statusDiv.innerText = "Accessing Services...";
+                const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+                bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
 
-                statusDiv.innerText = "Getting Characteristic...";
-                try {
-                    bleCharacteristic = await service.getCharacteristic(0xFFF3);
-                } catch(e) {
-                    bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
-                }
-
-                statusDiv.innerText = "Connected to " + bleDevice.name + "!";
+                statusDiv.innerText = "Connected to " + (bleDevice.name || "Lights") + "!";
                 statusDiv.style.color = "#34c759";
             } catch (error) {
-                statusDiv.innerText = "Error: " + error;
+                console.error(error);
+                statusDiv.innerText = "Error: " + (error.message || "Failed to pair");
                 statusDiv.style.color = "#ff3b30";
-                alert("Connection failed: " + error.message || error);
+                alert("Connection failed. Make sure nRF Connect is force-closed!");
             }
         }
 
         async function sendHex(hexString) {
-            if (!bleCharacteristic) return alert("Please connect first!");
-            const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-            await bleCharacteristic.writeValue(bytes);
+            if (!bleCharacteristic) return alert("Please tap 'Connect to Lights' first!");
+            try {
+                const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                await bleCharacteristic.writeValue(bytes);
+            } catch (e) {
+                alert("Send failed: " + e.message);
+            }
         }
 
         function setColor(r, g, b) {
