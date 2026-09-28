@@ -3,28 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Skateboard LED Controller</title>
+    <title>Skateboard Light Control</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #121212; color: #fff; padding: 20px; }
-        button { padding: 15px 25px; font-size: 18px; margin: 10px; border: none; border-radius: 8px; cursor: pointer; }
-        .btn-connect { background: #007bff; color: white; }
-        .btn-red { background: #ff0000; color: white; }
-        .btn-green { background: #00ff00; color: black; }
-        .btn-blue { background: #0000ff; color: white; }
+        body { font-family: -apple-system, sans-serif; text-align: center; background: #121212; color: #fff; padding: 20px; }
+        button { padding: 16px 24px; font-size: 18px; margin: 8px; border: none; border-radius: 12px; font-weight: bold; width: 80%; max-width: 300px; cursor: pointer; }
+        .btn-connect { background: #007bff; color: white; margin-bottom: 20px; }
+        .btn-red { background: #ff3b30; color: white; }
+        .btn-green { background: #34c759; color: white; }
+        .btn-blue { background: #007aff; color: white; }
         .btn-rainbow { background: linear-gradient(90deg, red, yellow, green, cyan, blue, magenta); color: white; }
-        .btn-off { background: #444; color: white; }
+        .btn-off { background: #333; color: #888; }
     </style>
 </head>
 <body>
-    <h1>🛹 Skateboard Light Control</h1>
+    <h1>🛹 Skateboard Lights</h1>
     <button class="btn-connect" onclick="connectBLE()">Connect to Lights</button>
-    <hr style="border-color: #333; margin: 20px 0;">
+    <hr style="border-color: #222; margin: 20px 0;">
     <div>
         <button class="btn-red" onclick="setColor(255, 0, 0)">Red</button>
         <button class="btn-green" onclick="setColor(0, 255, 0)">Green</button>
         <button class="btn-blue" onclick="setColor(0, 0, 255)">Blue</button>
-    </div>
-    <div>
         <button class="btn-rainbow" onclick="sendHex('7e05038703000000ef')">Rainbow Effect</button>
         <button class="btn-off" onclick="setColor(0, 0, 0)">Turn Off</button>
     </div>
@@ -34,21 +32,36 @@
 
         async function connectBLE() {
             try {
+                // Allows searching for any device name while exposing the FFF0 control service
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ namePrefix: 'ELK' }, { namePrefix: 'BLED' }, { namePrefix: 'Lotus' }],
-                    optionalServices: [0xFFF0]
+                    acceptAllDevices: true,
+                    optionalServices: [0xFFF0, 0xFFE0, '0000fff0-0000-1000-8000-00805f9b34fb']
                 });
+
                 const server = await bleDevice.gatt.connect();
-                const service = await server.getPrimaryService(0xFFF0);
-                bleCharacteristic = await service.getCharacteristic(0xFFF3);
-                alert("Connected to Skateboard LED!");
+                
+                // Fetch service and write characteristic
+                let service;
+                try {
+                    service = await server.getPrimaryService(0xFFF0);
+                } catch(e) {
+                    service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+                }
+
+                try {
+                    bleCharacteristic = await service.getCharacteristic(0xFFF3);
+                } catch(e) {
+                    bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
+                }
+
+                alert("Connected successfully to " + bleDevice.name + "!");
             } catch (error) {
                 alert("Connection failed: " + error);
             }
         }
 
         async function sendHex(hexString) {
-            if (!bleCharacteristic) return alert("Please connect first!");
+            if (!bleCharacteristic) return alert("Please tap 'Connect to Lights' first!");
             const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
             await bleCharacteristic.writeValue(bytes);
         }
