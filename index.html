@@ -8,9 +8,11 @@
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0e0e10; color: #fff; padding: 20px; max-width: 480px; margin: 0 auto; text-align: center; }
         h1 { font-size: 22px; margin-bottom: 5px; color: #00f0ff; text-transform: uppercase; letter-spacing: 1px; }
         .card { background: #18181c; border-radius: 16px; padding: 18px; margin-bottom: 16px; border: 1px solid #282830; }
-        button { padding: 14px 20px; font-size: 16px; border: none; border-radius: 12px; font-weight: bold; width: 100%; cursor: pointer; transition: 0.2s; }
-        .btn-connect { background: #007bff; color: white; box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
-        .btn-off { background: #ff3b30; color: white; margin-top: 10px; }
+        button { padding: 14px 20px; font-size: 16px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-connect { background: #007bff; color: white; width: 100%; box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
+        .btn-on { background: #34c759; color: white; width: 48%; }
+        .btn-off { background: #ff3b30; color: white; width: 48%; }
+        .power-grid { display: flex; justify-content: space-between; margin-top: 10px; }
         label { display: block; text-align: left; font-size: 13px; color: #aaa; margin: 12px 0 4px 0; font-weight: 600; text-transform: uppercase; }
         input[type="range"] { width: 100%; height: 8px; border-radius: 4px; background: #333; outline: none; }
         input[type="color"] { width: 100%; height: 50px; border: none; border-radius: 8px; background: none; cursor: pointer; }
@@ -25,7 +27,10 @@
 
     <div class="card" style="margin-top: 15px;">
         <button class="btn-connect" onclick="connectBLE()">Connect to Board</button>
-        <button class="btn-off" onclick="powerOff()">Power Off</button>
+        <div class="power-grid">
+            <button class="btn-on" onclick="powerOn()">Power ON</button>
+            <button class="btn-off" onclick="powerOff()">Power OFF</button>
+        </div>
     </div>
 
     <!-- Solid Color & Brightness -->
@@ -39,32 +44,19 @@
 
     <!-- Dynamic Modes & Speed -->
     <div class="card">
-        <label>Animation Mode</label>
+        <label>Verified Macro Modes</label>
         <select id="modeSelect" onchange="applyMode()">
-            <optgroup label="Multi-Color Animations">
-                <option value="87">Seven Color Cross Fade</option>
-                <option value="88">Seven Color Strobe</option>
-                <option value="89">Seven Color Jump</option>
-                <option value="8A">Three Color Jump</option>
-            </optgroup>
-            <optgroup label="Single Color Breathing / Pulse">
-                <option value="80">Red Breathing</option>
-                <option value="81">Green Breathing</option>
-                <option value="82">Blue Breathing</option>
-                <option value="83">Yellow Breathing</option>
-                <option value="84">Cyan Breathing</option>
-                <option value="85">Purple Breathing</option>
-                <option value="86">White Breathing</option>
-            </optgroup>
-            <optgroup label="Alternative Mode Map (For MELK Chips)">
-                <option value="25">7 Color Fade (Alt)</option>
-                <option value="26">Red Pulse (Alt)</option>
-                <option value="27">Green Pulse (Alt)</option>
-                <option value="28">Blue Pulse (Alt)</option>
-            </optgroup>
+            <option value="87">7 Color Smooth Cross-Fade</option>
+            <option value="88">7 Color Strobe / Flash</option>
+            <option value="89">7 Color Fast Jump</option>
+            <option value="8a">3 Color Jump (RGB)</option>
+            <option value="8b">Single Color Flash Cycle</option>
+            <option value="80">Red Fade Cycle</option>
+            <option value="81">Green Fade Cycle</option>
+            <option value="82">Blue Fade Cycle</option>
         </select>
 
-        <label>Animation Speed</label>
+        <label>Effect Speed</label>
         <input type="range" id="speed" min="1" max="255" value="128" onchange="applyMode()">
     </div>
 
@@ -105,13 +97,15 @@
             }
         }
 
+        function powerOn() {
+            // Hardware Power ON Packet
+            sendHex("7e0004f00001ff00ef");
+            setTimeout(updateColor, 100);
+        }
+
         function powerOff() {
-            // First send pure black with 0 brightness
-            setColor(0, 0, 0, 0);
-            // Backup power-off packet for ELK hardware
-            setTimeout(() => {
-                sendHex("7e04040000000000ef");
-            }, 100);
+            // Hardware Power OFF Packet
+            sendHex("7e0004000000ff00ef");
         }
 
         function updateColor() {
