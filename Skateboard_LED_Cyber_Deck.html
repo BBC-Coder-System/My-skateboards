@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Skateboard LED Cyber Deck</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            bg: '#0a0d14',
+                            card: 'rgba(18, 24, 38, 0.75)',
+                            border: 'rgba(0, 243, 255, 0.2)',
+                            neonCyan: '#00f3ff',
+                            neonMagenta: '#ff0055',
+                            neonGreen: '#00ff66',
+                            neonYellow: '#ffe600'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #080a0f;
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(0, 243, 255, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(ff, 0, 85, 0.08) 0%, transparent 40%);
+            background-attachment: fixed;
+            color: #e2e8f0;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .glass-card {
+            background: rgba(15, 21, 33, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 243, 255, 0.15);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .neon-glow-cyan {
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.4);
+        }
+
+        .neon-glow-magenta {
+            box-shadow: 0 0 15px rgba(255, 0, 85, 0.4);
+        }
+
+        .neon-text-cyan {
+            text-shadow: 0 0 8px rgba(0, 243, 255, 0.6);
+        }
+
+        /* Custom Color Picker Styling */
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 9999px;
+        }
+
+        /* Custom Range Slider Styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #1e293b;
+            border-radius: 8px;
+            height: 10px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #00f3ff;
+            cursor: pointer;
+            box-shadow: 0 0 10px #00f3ff;
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-12 font-sans antialiased">
+    <div class="max-w-md mx-auto px-4 pt-6 space-y-5">
+        
+        <!-- Header -->
+        <header class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
+                    <i data-lucide="zap" class="w-6 h-6 text-black stroke-[2.5]"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-black tracking-wider uppercase bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-pink-500 bg-clip-text text-transparent">
+                        CYBER DECK
+                    </h1>
+                    <p class="text-xs text-slate-400 font-medium">Skateboard LED Audio Hub</p>
+                </div>
+            </div>
+            <button id="infoBtn" class="p-2 rounded-xl glass-card text-slate-300 hover:text-white transition">
+                <i data-lucide="info" class="w-5 h-5"></i>
+            </button>
+        </header>
+
+        <!-- Help Info Modal Banner (Togglable) -->
+        <div id="infoBanner" class="hidden glass-card p-4 rounded-2xl border-cyan-500/40 bg-cyan-950/30 text-xs text-slate-300 space-y-2">
+            <div class="flex justify-between items-center text-cyan-400 font-bold text-sm">
+                <span class="flex items-center gap-1.5"><i data-lucide="smartphone" class="w-4 h-4"></i> Mobile Compatibility</span>
+                <button id="closeInfoBtn" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <p><strong class="text-white">iOS Users:</strong> Web Bluetooth requires a WebBluetooth-compatible browser such as <strong class="text-cyan-300">Bluefy</strong> or <strong class="text-cyan-300">WebBLE</strong> (Safari does not support direct BLE).</p>
+            <p><strong class="text-white">Android Users:</strong> Works natively in <strong class="text-cyan-300">Google Chrome</strong> with Location & Bluetooth enabled.</p>
+        </div>
+
+        <!-- Connection Card -->
+        <div class="glass-card rounded-2xl p-4 border border-cyan-500/20 shadow-xl space-y-3">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div id="statusDot" class="w-3.5 h-3.5 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]"></div>
+                    <span id="statusText" class="text-sm font-semibold tracking-wide text-slate-200">Disconnected</span>
+                </div>
+                <span id="deviceName" class="text-xs font-mono text-cyan-400/70 truncate max-w-[140px]">MELK-OA10 Target</span>
+            </div>
+
+            <button id="connectBtn" class="w-full py-3.5 px-4 rounded-xl font-bold text-sm tracking-wider uppercase transition-all duration-300 flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-black shadow-lg shadow-cyan-500/25 active:scale-[0.98]">
+                <i data-lucide="bluetooth" class="w-5 h-5"></i>
+                <span>Connect Deck</span>
+            </button>
+        </div>
+
+        <!-- Master Power & Brightness -->
+        <div class="glass-card rounded-2xl p-4 space-y-4">
+            <div class="flex items-center justify-between">
+                <span class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <i data-lucide="sun" class="w-4 h-4 text-cyan-400"></i> Brightness
+                </span>
+                <span id="brightnessVal" class="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2.5 py-1 rounded-lg border border-cyan-500/30">100%</span>
+            </div>
+            
+            <input type="range" id="brightnessSlider" min="0" max="100" value="100" class="w-full">
+
+            <div class="grid grid-cols-2 gap-2 pt-1">
+                <button id="powerOnBtn" class="py-2.5 rounded-xl font-bold text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 flex items-center justify-center gap-1.5 transition">
+                    <i data-lucide="power" class="w-4 h-4"></i> Turn On
+                </button>
+                <button id="powerOffBtn" class="py-2.5 rounded-xl font-bold text-xs bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 flex items-center justify-center gap-1.5 transition">
+                    <i data-lucide="power-off" class="w-4 h-4"></i> Turn Off
+                </button>
+            </div>
+        </div>
+
+        <!-- Color Control Center -->
+        <div class="glass-card rounded-2xl p-4 space-y-4">
+            <div class="flex items-center justify-between">
+                <span class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <i data-lucide="palette" class="w-4 h-4 text-fuchsia-400"></i> Lighting Color
+                </span>
+                <div class="relative flex items-center gap-2">
+                    <input type="color" id="htmlColorPicker" value="#00f3ff" class="w-8 h-8 rounded-full bg-transparent cursor-pointer border-2 border-white/20">
+                </div>
+            </div>
+
+            <!-- Quick Color Palette Buttons -->
+            <div class="grid grid-cols-4 gap-2.5">
+                <button data-color="#ff0000" class="preset-btn h-11 rounded-xl bg-red-600 shadow-[0_0_10px_rgba(239,68,68,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-white">Red</button>
+                <button data-color="#00ff00" class="preset-btn h-11 rounded-xl bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-black">Green</button>
+                <button data-color="#0066ff" class="preset-btn h-11 rounded-xl bg-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-white">Blue</button>
+                <button data-color="#a855f7" class="preset-btn h-11 rounded-xl bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-white">Purple</button>
+
+                <button data-color="#00f3ff" class="preset-btn h-11 rounded-xl bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-black">Cyan</button>
+                <button data-color="#ffe600" class="preset-btn h-11 rounded-xl bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-black">Yellow</button>
+                <button data-color="#ffffff" class="preset-btn h-11 rounded-xl bg-white shadow-[0_0_10px_rgba(255,255,255,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-black">White</button>
+                <button data-color="#ffb74d" class="preset-btn h-11 rounded-xl bg-orange-300 shadow-[0_0_10px_rgba(253,186,116,0.4)] transition active:scale-95 flex items-center justify-center text-xs font-bold text-black">Warm</button>
+            </div>
+        </div>
+
+        <!-- Skateboard Audio Reactive Visualizer -->
+        <div class="glass-card rounded-2xl p-4 space-y-4 border-fuchsia-500/20">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="activity" class="w-4 h-4 text-fuchsia-400"></i>
+                    <span class="text-sm font-bold text-slate-200">Rumble-Filtered Visualizer</span>
+                </div>
+                <button id="micToggleBtn" class="py-1.5 px-3 rounded-lg text-xs font-bold bg-fuchsia-600/30 text-fuchsia-300 border border-fuchsia-500/40 hover:bg-fuchsia-600/50 flex items-center gap-1.5 transition">
+                    <i data-lucide="mic" class="w-3.5 h-3.5"></i> Enable Mic
+                </button>
+            </div>
+
+            <!-- Waveform Canvas Visualizer -->
+            <div class="relative h-24 bg-slate-950/80 rounded-xl overflow-hidden border border-slate-800">
+                <canvas id="audioCanvas" class="w-full h-full"></canvas>
+                <div class="absolute bottom-1 left-2 text-[10px] text-cyan-400/60 font-mono">Filtered Music Stream</div>
+                <div id="micIndicator" class="hidden absolute top-2 right-2 flex items-center gap-1.5 bg-fuchsia-950/80 px-2 py-0.5 rounded border border-fuchsia-500/30 text-[10px] text-fuchsia-300 font-mono">
+                    <span class="w-2 h-2 rounded-full bg-fuchsia-500 animate-pulse"></span> LIVE
+                </div>
+            </div>
+
+            <!-- Visualizer Mode Selection -->
+            <div class="grid grid-cols-3 gap-2">
+                <button id="modeBass" class="mode-btn active p-2 rounded-xl text-center border border-cyan-500/50 bg-cyan-500/20 text-cyan-300 text-xs font-bold transition">
+                    <i data-lucide="disc" class="w-4 h-4 mx-auto mb-1"></i> Bass Bump
+                </button>
+                <button id="modeStrobe" class="mode-btn p-2 rounded-xl text-center border border-slate-700 bg-slate-900/50 text-slate-400 text-xs font-bold transition">
+                    <i data-lucide="sparkles" class="w-4 h-4 mx-auto mb-1"></i> Spectrum
+                </button>
+                <button id="modePulse" class="mode-btn p-2 rounded-xl text-center border border-slate-700 bg-slate-900/50 text-slate-400 text-xs font-bold transition">
+                    <i data-lucide="waves" class="w-4 h-4 mx-auto mb-1"></i> Pulse
+                </button>
+            </div>
+
+            <!-- Skateboard Noise Filter Settings -->
+            <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800 space-y-3">
+                <div class="flex justify-between items-center text-xs">
+                    <span class="font-semibold text-slate-300 flex items-center gap-1.5">
+                        <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-yellow-400"></i> Wheel Rumble Cutoff
+                    </span>
+                    <span id="cutoffVal" class="font-mono text-yellow-400 font-bold">200 Hz</span>
+                </div>
+                <input type="range" id="cutoffSlider" min="50" max="500" value="200" class="w-full">
+                <p class="text-[11px] text-slate-400 leading-tight">
+                    Filters out low-frequency pavement vibrations while capturing kick drums and music beat drops.
+                </p>
+
+                <div class="flex justify-between items-center text-xs pt-1">
+                    <span class="font-semibold text-slate-300">Beat Sensitivity</span>
+                    <span id="sensVal" class="font-mono text-cyan-400 font-bold">1.5x</span>
+                </div>
+                <input type="range" id="sensSlider" min="0.5" max="3.0" step="0.1" value="1.5" class="w-full">
+            </div>
+        </div>
+
+        <!-- Protocol Debug Box -->
+        <div class="glass-card rounded-2xl p-4 space-y-2">
+            <div class="flex justify-between items-center text-xs font-mono text-slate-400">
+                <span>Last Sent Protocol (HEX):</span>
+                <span id="hexBytes" class="text-cyan-400 font-bold">7E 07 05 03 00 F3 FF 00 EF</span>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // Lucide Icons setup
+        lucide.createIcons();
+
+        // Target BLE Service & Characteristic UUIDs for MELK-OA10
+        const TARGET_SERVICE_UUID        = '0000fff0-0000-1000-8000-00805f9b34fb';
+        const TARGET_CHARACTERISTIC_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
+
+        // State Variables
+        let bleDevice = null;
+        let gattServer = null;
+        let targetCharacteristic = null;
+
+        let currentColor = { r: 0, g: 243, b: 255 }; // Default Cyan
+        let currentBrightness = 100;
+        let lastSentTime = 0;
+        const THROTTLE_MS = 60; // Max 16 writes per second to avoid clogging BLE stack
+
+        // Audio Reactive State
+        let audioCtx = null;
+        let micStream = null;
+        let analyser = null;
+        let highPassFilter = null;
+        let isMicActive = false;
+        let activeVisualizerMode = 'bass'; // 'bass', 'strobe', 'pulse'
+        let sensitivity = 1.5;
+
+        // DOM Elements
+        const connectBtn = document.getElementById('connectBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const deviceName = document.getElementById('deviceName');
+        const htmlColorPicker = document.getElementById('htmlColorPicker');
+        const brightnessSlider = document.getElementById('brightnessSlider');
+        const brightnessVal = document.getElementById('brightnessVal');
+        const hexBytes = document.getElementById('hexBytes');
+        const powerOnBtn = document.getElementById('powerOnBtn');
+        const powerOffBtn = document.getElementById('powerOffBtn');
+        const infoBtn = document.getElementById('infoBtn');
+        const closeInfoBtn = document.getElementById('closeInfoBtn');
+        const infoBanner = document.getElementById('infoBanner');
+
+        // Audio DOM
+        const micToggleBtn = document.getElementById('micToggleBtn');
+        const micIndicator = document.getElementById('micIndicator');
+        const cutoffSlider = document.getElementById('cutoffSlider');
+        const cutoffVal = document.getElementById('cutoffVal');
+        const sensSlider = document.getElementById('sensSlider');
+        const sensVal = document.getElementById('sensVal');
+        const audioCanvas = document.getElementById('audioCanvas');
+        const canvasCtx = audioCanvas.getContext('2d');
+
+        // Connect / Disconnect Bluetooth
+        async function toggleBluetooth() {
+            if (gattServer && gattServer.connected) {
+                disconnectDevice();
+                return;
+            }
+
+            try {
+                updateStatus('connecting', 'Connecting...');
+                
+                // Request Bluetooth Device
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { services: [TARGET_SERVICE_UUID] },
+                        { namePrefix: 'MELK' },
+                        { namePrefix: 'Lotus' }
+                    ],
+                    optionalServices: [TARGET_SERVICE_UUID]
+                });
+
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                // Connect to GATT Server
+                gattServer = await bleDevice.gatt.connect();
+                const service = await gattServer.getPrimaryService(TARGET_SERVICE_UUID);
+                targetCharacteristic = await service.getCharacteristic(TARGET_CHARACTERISTIC_UUID);
+
+                updateStatus('connected', 'Connected');
+                deviceName.textContent = bleDevice.name || 'MELK-OA10';
+
+                // Initial sync light
+                sendColor(currentColor.r, currentColor.g, currentColor.b);
+
+            } catch (error) {
+                console.error('Bluetooth Connection Error:', error);
+                updateStatus('disconnected', 'Disconnected');
+                alert('Connection Failed: ' + (error.message || error));
+            }
+        }
+
+        function disconnectDevice() {
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+            }
+            onDisconnected();
+        }
+
+        function onDisconnected() {
+            updateStatus('disconnected', 'Disconnected');
+            targetCharacteristic = null;
+            gattServer = null;
+        }
+
+        function updateStatus(state, label) {
+            statusText.textContent = label;
+            if (state === 'connected') {
+                statusDot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399] animate-pulse';
+                connectBtn.innerHTML = `<i data-lucide="bluetooth-off" class="w-5 h-5"></i><span>Disconnect</span>`;
+                connectBtn.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm tracking-wider uppercase transition-all duration-300 flex items-center justify-center gap-2 bg-rose-600/30 text-rose-300 border border-rose-500/40 shadow-lg active:scale-[0.98]';
+            } else if (state === 'connecting') {
+                statusDot.className = 'w-3.5 h-3.5 rounded-full bg-yellow-400 shadow-[0_0_10px_#facc15] animate-ping';
+                connectBtn.innerHTML = `<span>Connecting...</span>`;
+            } else {
+                statusDot.className = 'w-3.5 h-3.5 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]';
+                connectBtn.innerHTML = `<i data-lucide="bluetooth" class="w-5 h-5"></i><span>Connect Deck</span>`;
+                connectBtn.className = 'w-full py-3.5 px-4 rounded-xl font-bold text-sm tracking-wider uppercase transition-all duration-300 flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-black shadow-lg shadow-cyan-500/25 active:scale-[0.98]';
+            }
+            lucide.createIcons();
+        }
+
+        // Format & Transmit 9-Byte Packet: 7E 07 05 03 R G B 00 EF
+        async function sendColor(r, g, b, overrideThrottling = false) {
+            const now = Date.now();
+            if (!overrideThrottling && (now - lastSentTime < THROTTLE_MS)) return;
+            lastSentTime = now;
+
+            // Apply Master Brightness
+            const factor = currentBrightness / 100;
+            const adjR = Math.min(255, Math.max(0, Math.round(r * factor)));
+            const adjG = Math.min(255, Math.max(0, Math.round(g * factor)));
+            const adjB = Math.min(255, Math.max(0, Math.round(b * factor)));
+
+            const payload = new Uint8Array([0x7E, 0x07, 0x05, 0x03, adjR, adjG, adjB, 0x00, 0xEF]);
+
+            // Update Debug HEX display
+            hexBytes.textContent = Array.from(payload)
+                .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+                .join(' ');
+
+            if (targetCharacteristic) {
+                try {
+                    await targetCharacteristic.writeValueWithoutResponse(payload);
+                } catch (e) {
+                    console.warn('BLE Write Error:', e);
+                }
+            }
+        }
+
+        // Helper Hex to RGB
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+
+        // Event Listeners for UI
+        connectBtn.addEventListener('click', toggleBluetooth);
+
+        // Color Presets
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const hex = btn.getAttribute('data-color');
+                const rgb = hexToRgb(hex);
+                if (rgb) {
+                    currentColor = rgb;
+                    htmlColorPicker.value = hex;
+                    sendColor(rgb.r, rgb.g, rgb.b, true);
+                }
+            });
+        });
+
+        // Color Picker Input
+        htmlColorPicker.addEventListener('input', (e) => {
+            const rgb = hexToRgb(e.target.value);
+            if (rgb) {
+                currentColor = rgb;
+                sendColor(rgb.r, rgb.g, rgb.b);
+            }
+        });
+
+        // Brightness Slider
+        brightnessSlider.addEventListener('input', (e) => {
+            currentBrightness = parseInt(e.target.value);
+            brightnessVal.textContent = `${currentBrightness}%`;
+            sendColor(currentColor.r, currentColor.g, currentColor.b);
+        });
+
+        // Power Buttons
+        powerOnBtn.addEventListener('click', () => {
+            currentBrightness = 100;
+            brightnessSlider.value = 100;
+            brightnessVal.textContent = '100%';
+            sendColor(currentColor.r, currentColor.g, currentColor.b, true);
+        });
+
+        powerOffBtn.addEventListener('click', () => {
+            sendColor(0, 0, 0, true);
+        });
+
+        // Info Toggle
+        infoBtn.addEventListener('click', () => infoBanner.classList.toggle('hidden'));
+        closeInfoBtn.addEventListener('click', () => infoBanner.classList.add('hidden'));
+
+        // Audio Microphone Logic
+        micToggleBtn.addEventListener('click', async () => {
+            if (isMicActive) {
+                stopAudio();
+            } else {
+                await startAudio();
+            }
+        });
+
+        async function startAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                micStream = stream;
+
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioCtx.createMediaStreamSource(stream);
+
+                // High-Pass Filter specifically tuned for skateboard wheel/pavement rumble
+                highPassFilter = audioCtx.createBiquadFilter();
+                highPassFilter.type = 'highpass';
+                highPassFilter.frequency.value = parseFloat(cutoffSlider.value); // Cut off 200Hz low rumble
+
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256;
+
+                // Wire Nodes: Mic -> HighPass Filter -> Analyser
+                source.connect(highPassFilter);
+                highPassFilter.connect(analyser);
+
+                isMicActive = true;
+                micIndicator.classList.remove('hidden');
+                micToggleBtn.className = 'py-1.5 px-3 rounded-lg text-xs font-bold bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/50 flex items-center gap-1.5 transition';
+                micToggleBtn.innerHTML = `<i data-lucide="mic-off" class="w-3.5 h-3.5"></i> Stop Mic`;
+                lucide.createIcons();
+
+                processAudioFrame();
+            } catch (err) {
+                alert('Microphone Access Denied or Unavailable: ' + err);
+            }
+        }
+
+        function stopAudio() {
+            isMicActive = false;
+            if (micStream) {
+                micStream.getTracks().forEach(track => track.stop());
+            }
+            if (audioCtx) {
+                audioCtx.close();
+            }
+            micIndicator.classList.add('hidden');
+            micToggleBtn.className = 'py-1.5 px-3 rounded-lg text-xs font-bold bg-fuchsia-600/30 text-fuchsia-300 border border-fuchsia-500/40 hover:bg-fuchsia-600/50 flex items-center gap-1.5 transition';
+            micToggleBtn.innerHTML = `<i data-lucide="mic" class="w-3.5 h-3.5"></i> Enable Mic`;
+            lucide.createIcons();
+        }
+
+        // Cutoff & Sensitivity Sliders
+        cutoffSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            cutoffVal.textContent = `${val} Hz`;
+            if (highPassFilter) {
+                highPassFilter.frequency.value = parseFloat(val);
+            }
+        });
+
+        sensSlider.addEventListener('input', (e) => {
+            sensitivity = parseFloat(e.target.value);
+            sensVal.textContent = `${sensitivity.toFixed(1)}x`;
+        });
+
+        // Mode Switching
+        const modeButtons = {
+            bass: document.getElementById('modeBass'),
+            strobe: document.getElementById('modeStrobe'),
+            pulse: document.getElementById('modePulse')
+        };
+
+        Object.keys(modeButtons).forEach(mode => {
+            modeButtons[mode].addEventListener('click', () => {
+                activeVisualizerMode = mode;
+                Object.keys(modeButtons).forEach(m => {
+                    if (m === mode) {
+                        modeButtons[m].className = 'mode-btn active p-2 rounded-xl text-center border border-cyan-500/50 bg-cyan-500/20 text-cyan-300 text-xs font-bold transition';
+                    } else {
+                        modeButtons[m].className = 'mode-btn p-2 rounded-xl text-center border border-slate-700 bg-slate-900/50 text-slate-400 text-xs font-bold transition';
+                    }
+                });
+            });
+        });
+
+        // Visualizer Loop
+        function processAudioFrame() {
+            if (!isMicActive) return;
+
+            requestAnimationFrame(processAudioFrame);
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+
+            // Draw Spectrum on Canvas
+            const width = audioCanvas.width = audioCanvas.clientWidth;
+            const height = audioCanvas.height = audioCanvas.clientHeight;
+            
+            canvasCtx.clearRect(0, 0, width, height);
+            const barWidth = (width / bufferLength) * 2.5;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                const barHeight = (dataArray[i] / 255) * height;
+                canvasCtx.fillStyle = `hsl(${i * 3 + 180}, 100%, 50%)`;
+                canvasCtx.fillRect(x, height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+
+            // Audio Signal Processing for LED reactivity
+            let sum = 0;
+            // Bass frequencies (post high-pass filter)
+            for (let i = 0; i < 15; i++) {
+                sum += dataArray[i];
+            }
+            let averageBass = (sum / 15) * sensitivity;
+
+            if (activeVisualizerMode === 'bass') {
+                if (averageBass > 120) {
+                    // Flash intense Cyan/Magenta on kick drops
+                    sendColor(255, 0, 128);
+                } else {
+                    sendColor(currentColor.r, currentColor.g, currentColor.b);
+                }
+            } else if (activeVisualizerMode === 'strobe') {
+                // Peak Frequency Color Shift
+                let maxVal = 0;
+                let maxIdx = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    if (dataArray[i] > maxVal) {
+                        maxVal = dataArray[i];
+                        maxIdx = i;
+                    }
+                }
+                if (maxVal > 100) {
+                    const hue = (maxIdx / bufferLength) * 360;
+                    const rgb = hslToRgb(hue / 360, 1, 0.5);
+                    sendColor(rgb.r, rgb.g, rgb.b);
+                }
+            } else if (activeVisualizerMode === 'pulse') {
+                // Pulse Brightness with overall Volume
+                const totalAvg = (dataArray.reduce((a, b) => a + b, 0) / bufferLength) * sensitivity;
+                const factor = Math.min(1, totalAvg / 128);
+                sendColor(
+                    Math.round(currentColor.r * factor),
+                    Math.round(currentColor.g * factor),
+                    Math.round(currentColor.b * factor)
+                );
+            }
+        }
+
+        // Helper HSL to RGB
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+            return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+        }
+    </script>
+</body>
+</html>
