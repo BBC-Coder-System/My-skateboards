@@ -13,11 +13,13 @@
         .btn-blue { background: #007aff; color: white; }
         .btn-rainbow { background: linear-gradient(90deg, red, yellow, green, cyan, blue, magenta); color: white; }
         .btn-off { background: #333; color: #888; }
+        #status { margin: 15px; color: #888; font-size: 14px; }
     </style>
 </head>
 <body>
     <h1>🛹 Skateboard Lights</h1>
     <button class="btn-connect" onclick="connectBLE()">Connect to Lights</button>
+    <div id="status">Status: Disconnected</div>
     <hr style="border-color: #222; margin: 20px 0;">
     <div>
         <button class="btn-red" onclick="setColor(255, 0, 0)">Red</button>
@@ -31,16 +33,24 @@
         let bleDevice, bleCharacteristic;
 
         async function connectBLE() {
+            const statusDiv = document.getElementById('status');
             try {
-                // Allows searching for any device name while exposing the FFF0 control service
+                statusDiv.innerText = "Searching for board...";
+                
+                // Specifically filter for MELK or allow FFF0 service without acceptAllDevices bug
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: [0xFFF0, 0xFFE0, '0000fff0-0000-1000-8000-00805f9b34fb']
+                    filters: [
+                        { namePrefix: 'MELK' },
+                        { namePrefix: 'ELK' },
+                        { services: [0xFFF0] }
+                    ],
+                    optionalServices: [0xFFF0, '0000fff0-0000-1000-8000-00805f9b34fb']
                 });
 
+                statusDiv.innerText = "Connecting to GATT...";
                 const server = await bleDevice.gatt.connect();
-                
-                // Fetch service and write characteristic
+
+                statusDiv.innerText = "Getting Service...";
                 let service;
                 try {
                     service = await server.getPrimaryService(0xFFF0);
@@ -48,20 +58,24 @@
                     service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
                 }
 
+                statusDiv.innerText = "Getting Characteristic...";
                 try {
                     bleCharacteristic = await service.getCharacteristic(0xFFF3);
                 } catch(e) {
                     bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
                 }
 
-                alert("Connected successfully to " + bleDevice.name + "!");
+                statusDiv.innerText = "Connected to " + bleDevice.name + "!";
+                statusDiv.style.color = "#34c759";
             } catch (error) {
-                alert("Connection failed: " + error);
+                statusDiv.innerText = "Error: " + error;
+                statusDiv.style.color = "#ff3b30";
+                alert("Connection failed: " + error.message || error);
             }
         }
 
         async function sendHex(hexString) {
-            if (!bleCharacteristic) return alert("Please tap 'Connect to Lights' first!");
+            if (!bleCharacteristic) return alert("Please connect first!");
             const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
             await bleCharacteristic.writeValue(bytes);
         }
