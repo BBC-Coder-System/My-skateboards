@@ -380,6 +380,27 @@ const scale = (c, k) => c.map(x => x * k);
 const smooth = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
 const BLACK = [0, 0, 0];
 const fireFlow = p => Math.max(1, Math.min(100, Math.round(p.flow * S.speed)));
+const FLARES = [[255, 90, 0], [255, 120, 0], [255, 150, 10], [255, 175, 30], [255, 70, 0], [255, 200, 90]];
+// Flicker, gutters and flare-ups on the strip's brightness, plus gusts on its flow speed.
+function fireLife(t, p, st, tint = [255, 90, 0]) {
+  const r = Math.random;
+  st.n = (st.n ?? 0.7) * 0.55 + r() * 0.45;                           // fast flicker
+  const swell = 0.82 + 0.18 * Math.sin(t * 0.9) * Math.sin(t * 2.3 + 1); // slow rise and fall
+  if (r() < 0.035 * p.flicker) st.dip = 0.3 + r() * 0.3;                // gutter
+  if (r() < 0.02) st.flare = 0.25;                                      // flare-up
+  st.dip = (st.dip || 0) * 0.6; st.flare = (st.flare || 0) * 0.7;
+  const k = Math.min(1, swell * (1 - p.flicker * 0.6 * (1 - st.n)) * (1 - st.dip) + st.flare);
+  const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * k)));
+  if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
+  const flow = fireFlow(p);
+  if (st.flow !== flow) { st.flow = flow; sendCmd(CMD.speed(flow)); st.nextGust = t + 2 + r() * 4; } // a slider moved: at most one per frame
+  if (t >= st.nextGust) {
+    sendCmd(CMD.speed(Math.max(1, Math.min(100, Math.round(flow * (1 + p.wind * (r() * 1.2 - 0.6)))))));
+    st.nextGust = t + 2 + r() * 4;
+  }
+  const g = `rgb(${tint.map(v => Math.round(v * k)).join(',')})`, d = `rgb(${tint.map(v => Math.round(v * k * 0.35)).join(',')})`;
+  document.getElementById('preview').style.background = `linear-gradient(90deg,${d},${g},${d},${g})`;
+}
 // Fastest cycle rate (per effect-second) the link can show when the shortest on/off phase is
 // `frac` of a cycle. Each phase must span >= 2 update frames or the engine can sample the same
 // phase every tick and the strip looks stuck on one colour. Divided by speed because t is sped up.
@@ -470,7 +491,7 @@ const EFFECTS = [
   // life on top: fast flicker, dips and flare-ups on the strip's brightness, and gusts on its flow speed.
   { id: 'fire2', group: 'flow', name: 'Fire 2 · Living flame', desc: 'Flames move along the strip and flicker',
     params: {
-      flame: { type: 'select', label: 'Flame', v: 155, restart: true,
+      flame: { type: 'select', label: 'Flame', v: 205, restart: true,
         options: [[155, 'Red-white flow'], [156, 'Red-white flow (back)'], [161, 'Yellow-white flow'], [25, 'Red tail'], [31, 'Yellow tail'],
                   [89, 'Red running'], [95, 'Yellow running'], [135, '7-colour in yellow running'], [205, 'Red marquee'], [200, 'Red-yellow gradual']] },
       flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 35 },
@@ -478,24 +499,42 @@ const EFFECTS = [
       wind: { label: 'Wind', min: 0, max: 1, step: 0.05, v: 0.4 },
     },
     start: (p, st) => { st.flow = fireFlow(p); sendCmd(CMD.mode(p.flame)); sendCmd(CMD.speed(st.flow)); st.nextGust = 2 + Math.random() * 3; },
+    drive: (t, p, st) => fireLife(t, p, st) },
+  // Fire 3: the MELK-OA10 can't recolour a moving effect, and switching effects restarts the
+  // pattern (probe3). So the marquee is the flame body with flicker/wind, and every few seconds a
+  // split-second orange/amber/yellow flare across the whole strip adds the warm colours. The flare
+  // also hides the restart when the marquee comes back, sometimes as the Yellow marquee.
+  { id: 'fire3', group: 'flow', name: 'Fire 3 · Blaze', desc: 'Moving flames with orange and yellow flare-ups',
+    params: {
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 35 },
+      flicker: { label: 'Flicker', min: 0, max: 1, step: 0.05, v: 0.6 },
+      wind: { label: 'Wind', min: 0, max: 1, step: 0.05, v: 0.4 },
+      flares: { label: 'Flares', min: 0, max: 1, step: 0.05, v: 0.5 },
+      yellow: { label: 'Yellow flames', min: 0, max: 1, step: 0.05, v: 0.3 },
+    },
+    start: (p, st) => { st.base = 205; st.flow = fireFlow(p); sendCmd(CMD.mode(st.base)); sendCmd(CMD.speed(st.flow)); st.nextGust = 2 + Math.random() * 3; st.nextFlare = performance.now() + 1500; },
+    lockPackets: (p, st) => [CMD.mode(st.base || 205), CMD.speed(st.flow || fireFlow(p))],
     drive: (t, p, st) => {
-      const r = Math.random;
-      st.n = (st.n ?? 0.7) * 0.55 + r() * 0.45;                       // fast flicker
-      const swell = 0.82 + 0.18 * Math.sin(t * 0.9) * Math.sin(t * 2.3 + 1); // slow rise and fall
-      if (r() < 0.035 * p.flicker) st.dip = 0.3 + r() * 0.3;            // gutter
-      if (r() < 0.02) st.flare = 0.25;                                  // flare-up
-      st.dip = (st.dip || 0) * 0.6; st.flare = (st.flare || 0) * 0.7;
-      const k = Math.min(1, swell * (1 - p.flicker * 0.6 * (1 - st.n)) * (1 - st.dip) + st.flare);
-      const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * k)));
-      if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
-      const flow = fireFlow(p);
-      if (st.flow !== flow) { st.flow = flow; sendCmd(CMD.speed(flow)); st.nextGust = t + 2 + r() * 4; } // a slider moved: at most one per frame
-      if (t >= st.nextGust) {
-        sendCmd(CMD.speed(Math.max(1, Math.min(100, Math.round(flow * (1 + p.wind * (r() * 1.2 - 0.6)))))));
-        st.nextGust = t + 2 + r() * 4;
+      const now = performance.now(), r = Math.random;
+      if (st.flareEnd) {
+        if (now < st.flareEnd) return;                                   // hold the flash
+        st.flareEnd = 0;
+        st.base = r() < p.yellow ? 208 : 205;                            // back to Red (or Yellow) marquee
+        sendCmd(CMD.mode(st.base)); sendCmd(CMD.speed(st.flow));
+        S.hwBright = -1;                                                 // make the flicker re-send brightness
       }
-      const g = `rgb(${Math.round(255 * k)},${Math.round(90 * k)},0)`, d = `rgb(${Math.round(120 * k)},${Math.round(20 * k)},0)`;
-      document.getElementById('preview').style.background = `linear-gradient(90deg,${d},${g},${d},${g})`;
+      if (p.flares > 0 && now >= st.nextFlare) {
+        const c = FLARES[Math.floor(r() * FLARES.length)];
+        pendingColor = null;                                             // drop a stale flicker packet
+        S.hwBright = Math.round(S.bright * 100);
+        sendCmd(CMD.color(...c)); sendCmd(CMD.bright(S.hwBright));
+        if (r() < 0.35) sendCmd(CMD.color(...FLARES[Math.floor(r() * FLARES.length)])); // double flicker
+        st.flareEnd = now + 120 + r() * 200;
+        st.nextFlare = st.flareEnd + (1200 + r() * 3800) / (0.25 + p.flares * 1.5);
+        document.getElementById('preview').style.background = `rgb(${c.join(',')})`;
+        return;
+      }
+      fireLife(t, p, st, st.base === 208 ? [255, 190, 0] : [255, 40, 0]);
     } },
   { id: 'ocean', group: 'flow', name: 'Ocean', desc: 'Rolling blue-green waves',
     params: {},
@@ -640,10 +679,12 @@ function handOffToStrip() {
   stopEngine();
   pendingColor = null; cmdQueue.length = 0;
   clearTimeout(pumpTimer); pumpTimer = null;
-  if (byId[S.current.id].start) {
+  const e = byId[S.current.id];
+  if (e.start) {
     // The flame keeps moving on the strip; only the phone's flicker stops, so leave it at full level.
     S.hwBright = Math.round(S.bright * 100);
-    rawWrite(hexToBytes(CMD.bright(S.hwBright))).catch(() => {});
+    const packets = [...(e.lockPackets ? e.lockPackets(S.current.params, scratch) : []), CMD.bright(S.hwBright)];
+    packets.reduce((pr, h) => pr.then(() => rawWrite(hexToBytes(h))), Promise.resolve()).catch(() => {});
   } else rawWrite(hexToBytes(CMD.mode(S.lockMode))).catch(() => {});
 }
 const hexToBytes = hex => new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
