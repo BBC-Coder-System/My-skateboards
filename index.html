@@ -73,12 +73,12 @@
 
     <script>
         let bleDevice, bleCharacteristic;
-        let lastSendTime = 0;
+        let isSending = false;
+        let pendingHex = null;
         let isMicActive = false, isMotionActive = false;
         let audioCtx, analyser, micStream;
-        let motionThreshold = 0;
 
-        // Default Full Hardware Mode Table (0x80 - 0x9B)
+        // Default Full Hardware Mode Table
         const defaultModes = {
             "80": "Red Breathing / Pulse",
             "81": "Green Breathing / Pulse",
@@ -110,7 +110,7 @@
             "9b": "White Strobe"
         };
 
-        // Load custom renamed labels from Phone LocalStorage
+        // Load custom renamed labels from LocalStorage
         let customModes = JSON.parse(localStorage.getItem('board_effect_names')) || defaultModes;
 
         function populateModeDropdown() {
@@ -164,19 +164,39 @@
             }
         }
 
-        // Hardware Fast Packet Sender with Rate Limiting (50ms)
+        // --- NON-BLOCKING QUEUED SENDER (FIXES 1-MINUTE BUFFER LAG) ---
         async function sendHex(hexString) {
             if (!bleCharacteristic) return;
-            const now = Date.now();
-            if (now - lastSendTime < 40) return; // Prevent flooding BLE stack
-            lastSendTime = now;
+            
+            // Keep only the newest packet
+            pendingHex = hexString;
 
-            try {
-                const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                await bleCharacteristic.writeValue(bytes);
-            } catch (e) {
-                console.error("BLE Send Error:", e);
+            // If a packet write is already running, skip adding to queue
+            if (isSending) return;
+
+            isSending = true;
+
+            while (pendingHex !== null) {
+                const currentHex = pendingHex;
+                pendingHex = null; // Clear queue indicator
+
+                try {
+                    const bytes = new Uint8Array(currentHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                    
+                    if (bleCharacteristic.properties.writeWithoutResponse) {
+                        await bleCharacteristic.writeValueWithoutResponse(bytes);
+                    } else {
+                        await bleCharacteristic.writeValue(bytes);
+                    }
+                } catch (e) {
+                    console.error("BLE Send Error:", e);
+                }
+
+                // Minimum throttle gap to keep controller buffer clear
+                await new Promise(resolve => setTimeout(resolve, 35));
             }
+
+            isSending = false;
         }
 
         function powerOn() {
@@ -225,7 +245,7 @@
             sendHex(`7e0503${modeHex}${hexSpeed}000000ef`);
         }
 
-        // --- INTERACTIVE FEATURE 1: PHONE MIC MUSIC SYNC ---
+        // --- PHONE MIC MUSIC SYNC ---
         async function toggleMicSync() {
             const btn = document.getElementById('micBtn');
             if (isMicActive) {
@@ -247,7 +267,7 @@
                 btn.innerText = "🛑 Stop Music Sync";
                 processAudioBeat();
             } catch (err) {
-                alert("Microphone permission denied or unavailable: " + err);
+                alert("Microphone permission denied: " + err);
             }
         }
 
@@ -256,27 +276,23 @@
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(dataArray);
 
-            // Focus on bass frequencies (bins 0-3)
             let bassSum = 0;
             for (let i = 0; i < 4; i++) bassSum += dataArray[i];
             let bassAvg = bassSum / 4;
 
-            // Scale brightness to audio pulse
             let dimLevel = parseInt(document.getElementById('brightness').value);
             let dynamicBright = Math.floor((bassAvg / 255) * dimLevel);
 
             if (bassAvg > 100) {
-                // High bass hit: bright pulse
                 setColor(0, 240, 255, dynamicBright);
             } else {
-                // Low volume: dim ambient glow
                 setColor(10, 20, 40, Math.floor(dynamicBright * 0.2));
             }
 
             requestAnimationFrame(processAudioBeat);
         }
 
-        // --- INTERACTIVE FEATURE 2: MOTION / SPEED REACTIVE MODE ---
+        // --- SPEED / ACCELEROMETER REACTIVE MODE ---
         function toggleMotionSync() {
             const btn = document.getElementById('motionBtn');
             if (isMotionActive) {
@@ -311,16 +327,12 @@
             let totalAcc = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
             document.getElementById('sensorDisplay').innerText = `G-Force Vector: ${totalAcc.toFixed(2)} m/s²`;
 
-            // Adjust speed or color dynamically according to movement
             let dimLevel = parseInt(document.getElementById('brightness').value);
             if (totalAcc > 15) {
-                // High speed / heavy carving: Intense Red Pulse
                 setColor(255, 0, 50, dimLevel);
             } else if (totalAcc > 11) {
-                // Moderate motion: Cyan Cruise
                 setColor(0, 240, 255, Math.floor(dimLevel * 0.8));
             } else {
-                // Idle / stationary: Low Blue Ambient
                 setColor(0, 50, 200, Math.floor(dimLevel * 0.3));
             }
         }
