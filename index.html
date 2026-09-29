@@ -245,6 +245,8 @@ const CMD = {
 // Built-in effect names and numbers from LotusLamp X (SYMPHONY / addressable devices).
 const SY_MODES = [{"cat":"Basic","fx":[[0,"Auto Play"],[1,"Magic Forward"],[2,"Magic Back"],[212,"7-Color Energy"],[193,"7-Color Jump"],[194,"R-G-B Jump"],[195,"Y-C-P Jump"],[196,"7-Color Strobe"],[197,"R-G-B Strobe"],[198,"Y-C-P Strobe"],[199,"7-Color Gradual"],[200,"R-Y Gradual"],[201,"R-P Gradual"],[202,"G-C Gradual"],[203,"G-Y Gradual"],[204,"B-P Gradual"],[205,"Red Marquee"],[206,"Green Marquee"],[207,"Blue Marquee"],[208,"Yellow Marquee"],[209,"Cyan Marquee"],[210,"Purple Marquee"],[211,"White Marquee"],[77,"7-Color Race"],[78,"7-Color Race Back"],[79,"R-G-B Race"],[80,"R-G-B Race Back"],[81,"Y-C-P Race"],[82,"Y-C-P Race Back"],[83,"7-Color Wave"],[84,"7-Color Wave Back"],[85,"R-G-B Wave"],[86,"R-G-B Wave Back"],[87,"Y-C-P Wave"],[88,"Y-C-P Wave Back"],[181,"7-Color Flush"],[182,"7-Color Flush Back"],[183,"R-G-B Flush"],[184,"R-G-B Flush Back"],[185,"Y-C-P Flush"],[186,"Y-C-P Flush Back"],[187,"7-Color Flush Close"],[188,"7-Color Flush Open"],[189,"R-G-B Flush Close"],[190,"R-G-B Flush Open"],[191,"Y-C-P Flush Close"],[192,"Y-C-P Flush Open"]]},{"cat":"Running","fx":[[89,"Red Running"],[91,"Green Running"],[93,"Blue Running"],[95,"Yellow Running"],[97,"Cyan Running"],[99,"Purple Running"],[101,"White Running"],[103,"7-Color Running"],[105,"R-G-B Running"],[107,"Y-C-P Running"],[109,"B-P-C-Y Running"],[111,"B-G-C-Y Running"],[113,"Red-Dot in White Running"],[115,"Green-Dot in Red Running"],[117,"Blue-Dot in Green Running"],[119,"Yellow-Dot in Blue Running"],[121,"Cyan-Dot in Yellow Running"],[123,"Purple-Dot in Cyan Running"],[125,"White-Dot in Purple Running"],[127,"White-Dot in Red Running"],[129,"7-Color in Red Running"],[131,"7-Color in Green Running"],[133,"7-Color in Blue Running"],[135,"7-Color in Yellow Running"],[137,"7-Color in Cyan Running"],[139,"7-Color in Purple Running"],[141,"7-Color in White Running"],[167,"Green-Dot in Blue Running"],[169,"Green-Dot in Red Running"],[171,"Red-Dot in Blue Running"],[173,"Cyan-Dot in Yellow Running"],[175,"Yellow-Dot in Purple Running"],[177,"White-Dot in Yellow Running"],[179,"Yellow-Dot in White Running"]]},{"cat":"Run back","fx":[[90,"Red Run Back"],[92,"Green Run Back"],[94,"Blue Run Back"],[96,"Yellow Run Back"],[98,"Cyan Run Back"],[100,"Purple Run Back"],[102,"White Run Back"],[104,"7-Color Run Back"],[106,"R-G-B Run Back"],[108,"Y-C-P Run Back"],[110,"B-P-C-Y Run Back"],[112,"B-G-C-Y Run Back"],[114,"Red-Dot in White Run Back"],[116,"Green-Dot in Red Run Back"],[118,"Blue-Dot in Green Run Back"],[120,"Yellow-Dot in Blue Run Back"],[122,"Cyan-Dot in Yellow Run Back"],[124,"Purple-Dot in Cyan Run Back"],[126,"White-Dot in Purple Run Back"],[128,"White-Dot in Red Run Back"],[130,"7-Color in Red Run Back"],[132,"7-Color in Green Run Back"],[134,"7-Color in Blue Run Back"],[136,"7-Color in Yellow Run Back"],[138,"7-Color in Cyan Run Back"],[140,"7-Color in Purple Run Back"],[142,"7-Color in White Run Back"],[168,"Green-Dot in Blue Run Back"],[170,"Green-Dot in Red Run Back"],[172,"Red-Dot in Blue Run Back"],[174,"Cyan-Dot in Yellow Run Back"],[176,"Yellow-Dot in Purple Run Back"],[178,"White-Dot in Yellow Run Back"],[180,"Yellow-Dot in White Run Back"]]},{"cat":"Water","fx":[[39,"7-Color Water"],[40,"7-Color Water Back"],[41,"R-G-B Water"],[42,"R-G-B Water Back"],[43,"Y-C-P Water"],[44,"Y-C-P Water Back"],[45,"R-G Water"],[46,"R-G Water Back"],[47,"G-B Water"],[48,"G-B Water Back"],[49,"Y-B Water"],[50,"Y-B Water Back"],[51,"Y-C Water"],[52,"Y-C Water Back"],[53,"C-P Water"],[54,"C-P Water Back"],[55,"White Water"],[56,"White Water Back"]]},{"cat":"Tail","fx":[[23,"7-Color Tail"],[24,"7-Color Tail Back"],[25,"Red Tail"],[26,"Red Tail Back"],[27,"Green Tail"],[28,"Green Tail Back"],[29,"Blue Tail"],[30,"Blue Tail Back"],[31,"Yellow Tail"],[32,"Yellow Tail Back"],[33,"Cyan Tail"],[34,"Cyan Tail Back"],[35,"Purple Tail"],[36,"Purple Tail Back"],[37,"White Tail"],[38,"White Tail Back"]]},{"cat":"Flow","fx":[[143,"W-R-W Flow"],[144,"W-R-W Flow Back"],[145,"W-G-W Flow"],[146,"W-G-W Flow Back"],[147,"W-B-W Flow"],[148,"W-B-W Flow Back"],[149,"W-Y-W Flow"],[150,"W-Y-W Flow Back"],[151,"W-C-W Flow"],[152,"W-C-W Flow Back"],[153,"W-P-W Flow"],[154,"W-P-W Flow Back"],[155,"R-W-R Flow"],[156,"R-W-R Flow Back"],[157,"G-W-G Flow"],[158,"G-W-G Flow Back"],[159,"B-W-B Flow"],[160,"B-W-B Flow Back"],[161,"Y-W-Y Flow"],[162,"Y-W-Y Flow Back"],[163,"C-W-C Flow"],[164,"C-W-C Flow Back"],[165,"P-W-P Flow"],[166,"P-W-P Flow Back"]]},{"cat":"Transition","fx":[[3,"7-Color Trans"],[4,"7-Color Trans Back"],[5,"R-G-B Trans"],[6,"R-G-B Trans Back"],[7,"Y-C-P Trans"],[8,"Y-C-P Trans Back"],[9,"6-Color to Red"],[10,"6-Color to Red Back"],[11,"6-Color to Green"],[12,"6-Color to Green Back"],[13,"6-Color to Blue"],[14,"6-Color to Blue Back"],[15,"6-Color to Cyan"],[16,"6-Color to Cyan Back"],[17,"6-Color to Yellow"],[18,"6-Color to Yellow Back"],[19,"6-Color to Purple"],[20,"6-Color to Purple Back"],[21,"6-Color to White"],[22,"6-Color to White Back"]]},{"cat":"Open / close","fx":[[57,"7-Color Close"],[58,"7-Color Open"],[59,"R-G-B Close"],[60,"R-G-B Open"],[61,"Y-C-P Close"],[62,"Y-C-P Open"],[63,"Red Close"],[64,"Red Open"],[65,"Green Close"],[66,"Green Open"],[67,"Blue Close"],[68,"Blue Open"],[69,"Yellow Close"],[70,"Yellow Open"],[71,"Cyan Close"],[72,"Cyan Open"],[73,"Purple Close"],[74,"Purple Open"],[75,"White Close"],[76,"White Open"]]},{"cat":"Other","fx":[[213,"Special seven-color opening at 25 point"],[214,"Orange red dark bright dark filtered running water"],[215,"Yellow green dark bright dark filtered running water"],[216,"Green dark bright dark filtered running water"],[217,"Green blue dark bright dark filtered running water"],[218,"Blue dark bright dark filtered running water"],[219,"Purple dark light dark filtered running water"],[220,"Red dark bright dark filtered running water"],[221,"Seven-color stacking"],[222,"Orange stacking"],[223,"Yellow-green stacking"],[224,"Green stacking"],[225,"Cyan-blue stacking"],[226,"Blue stacking"],[227,"Purple stacking"],[228,"Red stacking"],[229,"Colorful gradient"],[230,"Colorful transition"],[231,"Red-purple transition"],[232,"Yellow-white transition"],[233,"Yellow-orange transition"]]}];
 const FX_NAME = Object.fromEntries(SY_MODES.flatMap(c => c.fx));
+function supportsOtherFx(name) { const d = (name || '').replace(/\D/g, ''); return d.length >= 2 && +d.slice(0, 2) >= 21; }
+const fxCats = () => SY_MODES.filter(c => c.cat !== 'Other' || S.otherFx);
 const fxName = n => FX_NAME[n] || 'Effect #' + n;
 
 /* ---------------- storage ---------------- */
@@ -259,6 +261,7 @@ const S = {
   params: load('params', {}), // per-effect saved params
   fxStars: load('fxStars', null) || load('modeStars', [28]).map(m => 128 + m).filter(n => n <= 233),
   fxCat: load('fxCat', 'Basic'),
+  otherFx: load('otherFx', false),
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
   favs: load('favs', []),
@@ -329,6 +332,8 @@ async function openGatt() {
   inflight = false; lastColorHex = '';
   CMD.login.forEach(sendCmd);
   sendCmd(S.power ? CMD.on : CMD.off);
+  const other = supportsOtherFx(device.name);
+  if (other !== S.otherFx) { S.otherFx = other; store('otherFx', other); renderModes(); renderLockOptions(); }
   setConn('on', (device.name || 'Strip').trim() + (S.drops ? ' · ' + S.drops + ' drop' + (S.drops > 1 ? 's' : '') : ''));
   restoreOutput();
 }
@@ -374,6 +379,7 @@ const mix = (a, b, t) => [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t);
 const scale = (c, k) => c.map(x => x * k);
 const smooth = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
 const BLACK = [0, 0, 0];
+const fireFlow = p => Math.max(1, Math.min(100, Math.round(p.flow * S.speed)));
 // Fastest cycle rate (per effect-second) the link can show when the shortest on/off phase is
 // `frac` of a cycle. Each phase must span >= 2 update frames or the engine can sample the same
 // phase every tick and the strip looks stuck on one colour. Divided by speed because t is sped up.
@@ -464,13 +470,14 @@ const EFFECTS = [
   // life on top: fast flicker, dips and flare-ups on the strip's brightness, and gusts on its flow speed.
   { id: 'fire2', group: 'flow', name: 'Fire 2 · Living flame', desc: 'Flames move along the strip and flicker',
     params: {
-      flame: { type: 'select', label: 'Flame', v: 214, restart: true,
-        options: [[214, 'Orange flame'], [220, 'Red embers'], [233, 'Yellow-orange glow'], [222, 'Orange stacking']] },
+      flame: { type: 'select', label: 'Flame', v: 155, restart: true,
+        options: [[155, 'Red-white flow'], [156, 'Red-white flow (back)'], [161, 'Yellow-white flow'], [25, 'Red tail'], [31, 'Yellow tail'],
+                  [89, 'Red running'], [95, 'Yellow running'], [135, '7-colour in yellow running'], [205, 'Red marquee'], [200, 'Red-yellow gradual']] },
       flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 35 },
       flicker: { label: 'Flicker', min: 0, max: 1, step: 0.05, v: 0.6 },
       wind: { label: 'Wind', min: 0, max: 1, step: 0.05, v: 0.4 },
     },
-    start: (p, st) => { sendCmd(CMD.mode(p.flame)); sendCmd(CMD.speed(p.flow)); st.flow = p.flow; st.nextGust = 2 + Math.random() * 3; },
+    start: (p, st) => { st.flow = fireFlow(p); sendCmd(CMD.mode(p.flame)); sendCmd(CMD.speed(st.flow)); st.nextGust = 2 + Math.random() * 3; },
     drive: (t, p, st) => {
       const r = Math.random;
       st.n = (st.n ?? 0.7) * 0.55 + r() * 0.45;                       // fast flicker
@@ -481,9 +488,10 @@ const EFFECTS = [
       const k = Math.min(1, swell * (1 - p.flicker * 0.6 * (1 - st.n)) * (1 - st.dip) + st.flare);
       const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * k)));
       if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
-      if (st.flow !== p.flow) { st.flow = p.flow; sendCmd(CMD.speed(p.flow)); st.nextGust = t + 2 + r() * 4; } // slider moved: at most one per frame
+      const flow = fireFlow(p);
+      if (st.flow !== flow) { st.flow = flow; sendCmd(CMD.speed(flow)); st.nextGust = t + 2 + r() * 4; } // a slider moved: at most one per frame
       if (t >= st.nextGust) {
-        sendCmd(CMD.speed(Math.max(1, Math.min(100, Math.round(p.flow * (1 + p.wind * (r() * 1.2 - 0.6)))))));
+        sendCmd(CMD.speed(Math.max(1, Math.min(100, Math.round(flow * (1 + p.wind * (r() * 1.2 - 0.6)))))));
         st.nextGust = t + 2 + r() * 4;
       }
       const g = `rgb(${Math.round(255 * k)},${Math.round(90 * k)},0)`, d = `rgb(${Math.round(120 * k)},${Math.round(20 * k)},0)`;
@@ -543,7 +551,10 @@ const byId = Object.fromEntries(EFFECTS.map(e => [e.id, e]));
 function paramsFor(e) {
   const saved = S.params[e.id] || {};
   const out = {};
-  for (const [k, spec] of Object.entries(e.params)) out[k] = saved[k] !== undefined ? saved[k] : spec.v;
+  for (const [k, spec] of Object.entries(e.params)) {
+    const ok = saved[k] !== undefined && (spec.type !== 'select' || spec.options.some(([v]) => v == saved[k]));
+    out[k] = ok ? saved[k] : spec.v;
+  }
   return out;
 }
 
@@ -689,7 +700,7 @@ document.getElementById('swatches').addEventListener('click', ev => { const b = 
 document.getElementById('picker').addEventListener('input', ev => setSolid(ev.target.value));
 
 function renderModes() {
-  const cats = [{ cat: '★ Starred', fx: S.fxStars.map(n => [n, fxName(n)]) }, ...SY_MODES];
+  const cats = [{ cat: '★ Starred', fx: S.fxStars.map(n => [n, fxName(n)]) }, ...fxCats()];
   if (!cats.some(c => c.cat === S.fxCat)) S.fxCat = 'Basic';
   document.getElementById('cats').innerHTML = cats.map(c => `<button class="cat${c.cat === S.fxCat ? ' active' : ''}" data-cat="${c.cat}">${c.cat} <small>${c.fx.length}</small></button>`).join('');
   const list = cats.find(c => c.cat === S.fxCat).fx;
@@ -817,7 +828,11 @@ bindSlider('bright', v => {
 bindSlider('speed', v => { S.speed = v / 100; }, v => (v / 100).toFixed(1) + '×');
 bindSlider('fps', v => { S.fps = v; store('fps', v); if (timer) startEngine(); }, v => v + '/s');
 bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); pendingColor = CMD.speed(v); pump(); }, v => v);
-document.getElementById('lockMode').innerHTML = SY_MODES.map(c => `<optgroup label="${c.cat}">` + c.fx.map(([n, name]) => `<option value="${n}">${name}</option>`).join('') + '</optgroup>').join('');
+function renderLockOptions() {
+  document.getElementById('lockMode').innerHTML = fxCats().map(c => `<optgroup label="${c.cat}">` + c.fx.map(([n, name]) => `<option value="${n}">${name}</option>`).join('') + '</optgroup>').join('');
+  document.getElementById('lockMode').value = S.lockMode;
+}
+renderLockOptions();
 document.getElementById('fxCmd').value = S.legacyFx ? 'legacy' : 'app';
 document.getElementById('fxCmd').addEventListener('change', e => { S.legacyFx = e.target.value === 'legacy'; store('legacyFx', S.legacyFx); if (S.current && S.current.kind === 'builtin') sendCmd(CMD.mode(S.current.id)); });
 document.getElementById('lockMode').addEventListener('change', e => { S.lockMode = +e.target.value; store('lockFx', S.lockMode); });

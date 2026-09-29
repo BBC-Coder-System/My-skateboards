@@ -38,8 +38,7 @@ _Last updated 2026-09-30._
 2. **Strip-level brightness and speed** for built-in effects.
 3. **Strip setup** (Settings): LED count and wire order. Still need to find the real LED count. Tap *Set LED count*, then watch the "Red Tail" test run end to end.
 4. **Ride mode** (keeps the screen awake) and the **phone-lock hand-off** (switches the strip to a built-in effect when the phone locks).
-5. ❌ **2026-09-30 feedback: Fire 2 doesn't work.** The strip only cycled colours and brightness/speed did nothing, so the LotusLamp X effect/brightness/speed commands are wrong for this strip. Waiting for `probe2.html` results to pick the right versions, then fix `CMD.mode/speed/bright` and Fire 2.
-   **Fire 2 · Living flame** (Flow tab): runs a warm built-in effect that varies along the strip (#214 Orange flame by default; also #220, #233, #222) while the phone flickers the strip's brightness and gusts its flow speed. Depends on the new effect/brightness/speed commands above. If brightness doesn't work, the flame still moves but won't flicker.
+5. **Fire 2 · Living flame** (Flow tab), second attempt. First version failed (only cycled colours) because its flame effects were all in the "Other" category this strip doesn't have. probe2.html then confirmed the effect/speed/brightness commands are right. Now the base is #155 R-W-R Flow by default (choices: 156, 161, 25, 31, 89, 95, 135, 205, 200). The top Speed slider multiplies the flow speed. **Waiting for me to say which base looks most like fire**, then make it the default and tune flicker.
 6. Stability fixes for disconnects and frozen strobes. Check whether the drop counter in the status pill keeps climbing.
 7. **Music** (phone mic) and **Motion** tabs: it's unknown whether Bluefy grants mic and motion access.
 
@@ -81,13 +80,13 @@ BLE service `0000fff0-…`, write characteristic `0000fff3-…`, write-without-r
 
 These did **not** work in the probe: brightness `7e04010a01ffff00ef`, `7e04010affffff00ef`, `7e00010a00000000ef`; speed `7e0402…`.
 
-### From the LotusLamp X app. Built into index.html, not yet confirmed
+### From the LotusLamp X app. Effect, speed and brightness ✅ confirmed with probe2.html (2026-09-30)
 
 | Action | Bytes | App source |
 |---|---|---|
-| Built-in effect NN (0–233) | `7e0703 NN 06ffff00ef` | `setSymphonyMode` |
-| Effect speed SS (1–100) | `7e0702 SS ffffff00ef` | `speed` |
-| Brightness BB (0–100) | `7e0401 BB 01ff0201ef` | `setRGBBrightness` (last two bytes are app type 02 / version 01) |
+| Built-in effect NN (0–212 on this strip) ✅ | `7e0703 NN 06ffff00ef` | `setSymphonyMode` |
+| Effect speed SS (1–100) ✅ | `7e0702 SS ffffff00ef` | `speed` |
+| Brightness BB (0–100) ✅ on effects and solid colours | `7e0401 BB 01ff0201ef` | `setRGBBrightness` (last two bytes are app type 02 / version 01) |
 | LED count N (10–1000) | `7e0721 LL HH 00ff00ef` (low byte first) | `pointSetting` |
 | Wire order | `7e0781 a b c ff00ef`, R=1 G=2 B=3 (GRB → `02 01 03`) | `lineOrder` |
 
@@ -104,6 +103,8 @@ For step 2 (device-mic rhythm):
 Mic modes (`ELKSymphonyMicRhythmMode`): 128 Energy 1, 129 Rhythm 1, 130 Spectrum 1, 131 Scroll 1, 132 Energy 2, 133 Rhythm 2, 134 Spectrum 2, 135 Scroll 2. The order in which the app sends on / mode / sensitivity isn't checked yet. See `ui/symphony/SYMicFragment.java`. Build a probe-style yes/no test for these first.
 
 ### Built-in effect list
+
+**The "Other" category (213–233) is NOT available on this strip.** LotusLamp X only shows it when the first two digits of the device name are ≥ 21 (`isSupportedOtherSpecialMode`); ours is "MELK-OA**10** 17". Sending one of those numbers makes the strip fall back to cycling colours, and brightness then does nothing. The app hides "Other" automatically based on the connected name.
 
 234 effects in 9 categories, stored as `SY_MODES` in `index.html` (copied from the app's `sy_mode_name_*_array` / `sy_mode_cmd_*_array` resources): Basic 47, Running 34, Run back 34, Water 18, Tail 16, Flow 24, Transition 20, Open/close 20, Other 21. Numbers are 0–233 with no gaps. I fixed one mislabelled pair in the app's data (178 / 180). Old app numbering "#m" = effect `128 + m` (so old #28 = 156 "R-W-R Flow Back").
 
