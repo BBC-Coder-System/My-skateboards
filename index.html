@@ -145,8 +145,8 @@
       <button class="small" onclick="openSettings()">⚙ Settings</button>
     </div>
     <div id="settings" class="hidden" style="margin-top:12px">
-      <div class="slider"><label>Update rate</label><input type="range" id="fps" min="8" max="40" value="20"><span class="val" id="fpsVal">20/s</span></div>
-      <div class="hint">How many colour updates per second custom effects send. Your strip was smooth at about 20.</div>
+      <div class="slider"><label>Update rate</label><input type="range" id="fps" min="8" max="30" value="15"><span class="val" id="fpsVal">15/s</span></div>
+      <div class="hint">How many colour updates per second the app sends. Lower is more stable, higher is smoother. The app lowers it automatically if the strip keeps dropping the connection.</div>
       <div class="label" style="margin-top:12px">When the phone locks</div>
       <div class="hint">iPhone pauses web pages when the screen locks, so custom effects freeze. Choose what the strip does then:</div>
       <select id="lockAction" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
@@ -197,7 +197,7 @@ function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch
 /* ---------------- state ---------------- */
 const S = {
   power: true,
-  bright: 1, speed: 1, fps: load('fps', 20),
+  bright: 1, speed: 1, fps: load('fps', 15), drops: 0,
   current: null,              // {kind:'solid'|'effect'|'builtin', id, params}
   params: load('params', {}), // per-effect saved params
   modeNames: load('modeNames', { 7: 'animation', 28: 'moves along strip' }),
@@ -228,8 +228,19 @@ function pump() {
   inflight = true;
   lastWriteAt = performance.now();
   const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
-  const p = chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
-  p.catch(e => console.warn('write', e)).finally(() => { inflight = false; pump(); });
+  // Watchdog: a write that never settles would otherwise block the queue and freeze the strip.
+  const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('write timeout')), 600));
+  Promise.race([rawWrite(bytes), timeout])
+    .catch(e => console.warn('write', e))
+    .finally(() => { inflight = false; pump(); });
+}
+// Prefer acknowledged writes when the strip supports them: the strip then sets the pace and can't be flooded.
+let useAck = true;
+function rawWrite(bytes) {
+  if (useAck && chr.properties.write && typeof chr.writeValueWithResponse === 'function') {
+    return chr.writeValueWithResponse(bytes).catch(e => { useAck = false; throw e; });
+  }
+  return chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
 }
 function sendCmd(hex) { cmdQueue.push(hex); pump(); }
 function sendColor(rgb) {
@@ -259,12 +270,20 @@ async function openGatt() {
   inflight = false; lastColorHex = '';
   CMD.login.forEach(sendCmd);
   sendCmd(S.power ? CMD.on : CMD.off);
-  setConn('on', (device.name || 'Strip').trim());
+  setConn('on', (device.name || 'Strip').trim() + (S.drops ? ' · ' + S.drops + ' drop' + (S.drops > 1 ? 's' : '') : ''));
   restoreOutput();
 }
 function onDisconnected() {
   chr = null;
   if (userDisconnect) { setConn('off', 'Tap to connect'); return; }
+  // Unexpected drop usually means the controller got overloaded: ease off a little each time.
+  S.drops++;
+  if (S.fps > 10) {
+    S.fps = Math.max(10, S.fps - 2); store('fps', S.fps);
+    document.getElementById('fps').value = S.fps; document.getElementById('fpsVal').textContent = S.fps + '/s';
+    if (timer) startEngine();
+    toast('Connection dropped. Slowed to ' + S.fps + ' updates/s for stability');
+  }
   reconnect();
 }
 async function reconnect() {
@@ -272,7 +291,7 @@ async function reconnect() {
   reconnecting = true;
   for (let i = 0; i < 30 && !userDisconnect; i++) {
     setConn('busy', 'Reconnecting… (' + (i + 1) + ')');
-    try { await openGatt(); reconnecting = false; toast('Reconnected'); return; }
+    try { await openGatt(); reconnecting = false; return; }
     catch (e) { await new Promise(r => setTimeout(r, Math.min(1000 + i * 500, 5000))); }
   }
   reconnecting = false;
@@ -296,6 +315,10 @@ const mix = (a, b, t) => [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t);
 const scale = (c, k) => c.map(x => x * k);
 const smooth = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
 const BLACK = [0, 0, 0];
+// Fastest cycle rate (per effect-second) the link can show when the shortest on/off phase is
+// `frac` of a cycle. Each phase must span >= 2 update frames or the engine can sample the same
+// phase every tick and the strip looks stuck on one colour. Divided by speed because t is sped up.
+const maxRate = frac => S.fps * frac / 2 / S.speed;
 
 /* ---------------- sensors: microphone ---------------- */
 const audio = { ctx: null, an: null, buf: null, level: 0, bass: 0, mid: 0, treble: 0, avg: 0.05, beat: false, beatCount: 0, lastBeat: 0 };
@@ -387,19 +410,19 @@ const EFFECTS = [
   // ---- Flash ----
   { id: 'strobe', group: 'flash', name: 'Strobe', desc: 'Hard on/off flashes',
     params: { color: { type: 'color', v: '#ffffff' }, rate: { label: 'Flashes/s', min: 0.5, max: 10, step: 0.5, v: 5 }, duty: { label: 'On time', min: 0.1, max: 0.9, step: 0.05, v: 0.5 } },
-    fn: (t, p) => ((t * p.rate) % 1) < p.duty ? hexToRgb(p.color) : BLACK },
+    fn: (t, p) => { const r = Math.min(p.rate, maxRate(Math.min(p.duty, 1 - p.duty))); return ((t * r) % 1) < p.duty ? hexToRgb(p.color) : BLACK; } },
   { id: 'police', group: 'flash', name: 'Police', desc: 'Red / blue double flash',
     params: { a: { type: 'color', v: '#ff0000' }, b: { type: 'color', v: '#0000ff' } },
-    fn: (t, p) => { const s = Math.floor(t * 8) % 8; return [hexToRgb(p.a), BLACK, hexToRgb(p.a), BLACK, hexToRgb(p.b), BLACK, hexToRgb(p.b), BLACK][s]; } },
+    fn: (t, p) => { const s = Math.floor(t * Math.min(8, maxRate(1))) % 8; return [hexToRgb(p.a), BLACK, hexToRgb(p.a), BLACK, hexToRgb(p.b), BLACK, hexToRgb(p.b), BLACK][s]; } },
   { id: 'alternate', group: 'flash', name: 'Alternate', desc: 'Snap between two colours',
     params: { a: { type: 'color', v: '#ff00aa' }, b: { type: 'color', v: '#00ffcc' }, rate: { label: 'Switches/s', min: 0.5, max: 10, step: 0.5, v: 2 } },
-    fn: (t, p) => Math.floor(t * p.rate) % 2 ? hexToRgb(p.b) : hexToRgb(p.a) },
+    fn: (t, p) => Math.floor(t * Math.min(p.rate, maxRate(1))) % 2 ? hexToRgb(p.b) : hexToRgb(p.a) },
   { id: 'heartbeat', group: 'flash', name: 'Heartbeat', desc: 'Lub-dub pulse',
     params: { color: { type: 'color', v: '#ff0033' }, bpm: { label: 'BPM', min: 40, max: 180, step: 1, v: 70 } },
-    fn: (t, p) => { const x = (t * p.bpm / 60) % 1; const k = Math.max(Math.exp(-((x - 0.05) ** 2) / 0.002), 0.7 * Math.exp(-((x - 0.28) ** 2) / 0.002)); return scale(hexToRgb(p.color), k); } },
+    fn: (t, p) => { const x = (t * p.bpm / 60) % 1; const k = Math.max(Math.exp(-((x - 0.05) ** 2) / 0.006), 0.7 * Math.exp(-((x - 0.3) ** 2) / 0.006)); return scale(hexToRgb(p.color), k); } },
   { id: 'randflash', group: 'flash', name: 'Random flash', desc: 'New random colour each flash',
     params: { rate: { label: 'Flashes/s', min: 0.5, max: 8, step: 0.5, v: 3 } },
-    fn: (t, p, st) => { const n = Math.floor(t * p.rate); if (n !== st.n) { st.n = n; st.h = Math.random() * 360; } return ((t * p.rate) % 1) < 0.5 ? hsv(st.h) : BLACK; } },
+    fn: (t, p, st) => { const r = Math.min(p.rate, maxRate(0.5)); const n = Math.floor(t * r); if (n !== st.n) { st.n = n; st.h = Math.random() * 360; } return ((t * r) % 1) < 0.5 ? hsv(st.h) : BLACK; } },
 
   // ---- Music ----
   { id: 'mpulse', group: 'music', name: 'Volume pulse', desc: 'Brightness follows the music', needs: 'mic',
