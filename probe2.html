@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Effect Command Finder</title>
+<style>
+  :root { --bg:#0b0d14; --card:#151a26; --line:#262d3d; --text:#e2e8f0; --dim:#8a94a8; --accent:#22d3ee; --ok:#34d399; --bad:#f87171; --warn:#fbbf24; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; -webkit-tap-highlight-color:transparent; }
+  main { max-width:480px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:4px 0 2px; color:var(--accent); }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .label { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin-bottom:8px; }
+  button { font:inherit; border:none; border-radius:12px; padding:14px; font-weight:700; font-size:15px; width:100%; cursor:pointer; color:#04111a; background:var(--accent); }
+  button:active { transform:scale(.97); }
+  button.ghost { background:#222a3a; color:var(--text); }
+  button.yes { background:var(--ok); }
+  button.no { background:var(--bad); }
+  button:disabled { opacity:.4; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row > * { flex:1; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:8px; }
+  .grid4 button { padding:12px 4px; font-size:13px; }
+  #status { font-size:13px; color:var(--warn); margin-bottom:10px; }
+  #status.on { color:var(--ok); }
+  .step { font-size:12px; color:var(--dim); }
+  .q { font-size:18px; font-weight:700; margin:6px 0 4px; }
+  .hint { font-size:13px; color:var(--dim); margin-bottom:6px; }
+  code, .mono { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--accent); word-break:break-all; }
+  .progress { height:6px; background:#222a3a; border-radius:3px; overflow:hidden; margin:8px 0 2px; }
+  .progress > div { height:100%; background:var(--accent); width:0; transition:width .3s; }
+  #log { background:#000; border-radius:10px; padding:8px; height:120px; overflow-y:auto; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#9ca3af; }
+  #results { white-space:pre-wrap; font-family:ui-monospace,Menlo,monospace; font-size:11px; background:#000; border-radius:10px; padding:8px; max-height:220px; overflow:auto; color:var(--ok); }
+  .modeBig { font-size:34px; font-weight:800; font-family:ui-monospace,Menlo,monospace; text-align:center; color:var(--accent); }
+  input[type=text] { width:100%; background:#000; border:1px solid var(--line); border-radius:10px; color:var(--text); padding:10px; font-size:14px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Effect Command Finder</h1>
+  <div class="sub">Finds which versions of the built-in effect, speed and brightness commands your strip accepts. Tap Connect, then answer what you see.</div>
+
+  <div class="card">
+    <div id="status">Not connected</div>
+    <button id="btnConnect" onclick="connect()">Connect to strip</button>
+    <div class="hint" style="margin-top:8px">Close the Lotus Lantern app first. The strip only allows one connection at a time.</div>
+  </div>
+
+  <!-- Guided wizard -->
+  <div class="card" id="wizard">
+    <div class="label">Guided test</div>
+    <div class="progress"><div id="bar"></div></div>
+    <div class="step" id="stepInfo">Connect to start</div>
+    <div class="q" id="question">—</div>
+    <div class="hint" id="hint"></div>
+    <div class="mono" id="sentPacket"></div>
+    <div id="answers"></div>
+    <div class="row">
+      <button class="ghost" onclick="resend()">Send again</button>
+      <button class="ghost" onclick="skipTest()">Skip test</button>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="card">
+    <div class="label">Results: send these to Claude</div>
+    <div id="results">(none yet)</div>
+    <div class="row">
+      <button onclick="copyResults()">Copy results</button>
+      <button class="ghost" onclick="resetAll()">Reset</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">Log</div>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+const SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb';
+const CHAR    = '0000fff3-0000-1000-8000-00805f9b34fb';
+const ALT_SERVICES = ['0000ffe0-0000-1000-8000-00805f9b34fb', '0000ffd0-0000-1000-8000-00805f9b34fb'];
+
+let device = null, chr = null;
+let results = { device: null, tests: {} };
+
+// ---------- storage (best effort) ----------
+function save() { try { localStorage.setItem('probe2Results', JSON.stringify(results)); } catch (e) {} renderResults(); }
+try { const s = localStorage.getItem('probe2Results'); if (s) results = JSON.parse(s); } catch (e) {}
+
+// ---------- logging ----------
+function log(msg) {
+  const l = document.getElementById('log');
+  const d = document.createElement('div');
+  d.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  l.appendChild(d); l.scrollTop = l.scrollHeight;
+}
+
+// ---------- BLE with a write queue (Web Bluetooth rejects overlapping writes) ----------
+let queue = Promise.resolve();
+function hexToBytes(h) { h = h.replace(/\s+/g, ''); return new Uint8Array(h.match(/.{2}/g).map(b => parseInt(b, 16))); }
+function write(hex) {
+  const bytes = hexToBytes(hex);
+  queue = queue.then(async () => {
+    if (!chr) throw new Error('not connected');
+    if (chr.properties.writeWithoutResponse) await chr.writeValueWithoutResponse(bytes);
+    else await chr.writeValue(bytes);
+  }).catch(e => log('write failed: ' + e.message));
+  return queue;
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+async function connect() {
+  try {
+    log('Opening device picker…');
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE, ...ALT_SERVICES] });
+    device.addEventListener('gattserverdisconnected', () => { chr = null; setStatus(false); log('Disconnected'); });
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(SERVICE);
+    try { chr = await svc.getCharacteristic(CHAR); }
+    catch (e) { chr = (await svc.getCharacteristics()).find(c => c.properties.write || c.properties.writeWithoutResponse); }
+    results.device = { name: device.name || '(unnamed)', char: chr.uuid.slice(4, 8), writeWithoutResponse: !!chr.properties.writeWithoutResponse };
+    save();
+    setStatus(true);
+    log('Connected to ' + results.device.name + ' via ' + results.device.char);
+    startWizard();
+  } catch (e) { log('Connect error: ' + e.message); setStatus(false); }
+}
+function setStatus(on) {
+  const s = document.getElementById('status');
+  s.textContent = on ? 'Connected: ' + (device && device.name || 'strip') : 'Not connected';
+  s.className = on ? 'on' : '';
+}
+
+// ---------- Guided tests ----------
+// Each test: a question plus candidate packet variants. We try variants one at a time until the user says yes.
+// "answers" customises the buttons. Default is Yes/No.
+const MELK_LOGIN = ['7e0783', '7e0404'];
+// Variants may be a single packet or a sequence: strings are sent, numbers are pauses (ms).
+// base() = a moving built-in effect that is known to work, so speed/brightness changes are visible.
+const hx = n => n.toString(16).padStart(2, '0');
+function base() {
+  const w = results.tests.marquee;
+  return (w && w.answer === 'yes' && w.first) || '7e05039c03ffff00ef'; // #156 via the older command moved along the strip in probe 1
+}
+const SPEED_FORMS = [s => '7e0702' + hx(s) + 'ffffff00ef', s => '7e0402' + hx(s) + 'ffffff00ef', s => '7e0702' + hx(s) + '00000000ef'];
+const BRIGHT_FORMS = [b => '7e0401' + hx(b) + '01ff0201ef', b => '7e0401' + hx(b) + 'ffffff00ef', b => '7e0401' + hx(b) + '01ffff00ef', b => '7e0701' + hx(b) + 'ffffff00ef', b => '7e0401' + hx(b) + '00000000ef'];
+const TESTS = [
+  { id: 'wake', q: 'Sending the wake-up. Tap Continue.', hint: 'You may not see any change.',
+    run: async () => { for (const p of MELK_LOGIN) { await write(p); await wait(300); } await write('7e0404f00001ff00ef'); return 'wake-up + on'; },
+    answers: [['Continue', 'yes']] },
+  { id: 'marquee', q: 'Do you see RED lights running along the strip?', hint: 'We ask for built-in effect "Red Marquee". Watch for 3 seconds.',
+    variants: ['7e0703cd06ffff00ef', '7e0503cd03ffff00ef', '7e0503cd06ffff00ef', '7e0703cd03ffff00ef'],
+    answers: [['Red running ✓', 'yes'], ['Colours cycling', 'cycle'], ['Something else', 'other'], ['No change', 'no']] },
+  { id: 'tail', q: 'Do you see a RAINBOW tail (comet) running along the strip?', hint: 'We ask for built-in effect "7-Color Tail".',
+    variants: ['7e07031706ffff00ef', '7e05031703ffff00ef', '7e05039703ffff00ef'],
+    answers: [['Rainbow tail ✓', 'yes'], ['Colours cycling', 'cycle'], ['Something else', 'other'], ['No change', 'no']] },
+  { id: 'speed', q: 'Did the movement change speed after 3 seconds?', hint: 'A moving effect starts, then we set one speed, wait 3 s, and set a very different one.',
+    variants: SPEED_FORMS.map(f => [() => base(), 1500, f(5), 3000, f(100)]),
+    answers: [['Slow → fast ✓', 'yes'], ['Fast → slow ✓', 'reversed'], ['No change', 'no']] },
+  { id: 'brightFx', q: 'Did it go DIM for 3 seconds, then BRIGHT again?', hint: 'While a built-in effect runs.',
+    variants: BRIGHT_FORMS.map(f => [() => base(), 1500, f(8), 3000, f(100)]),
+    answers: [['Dim → bright ✓', 'yes'], ['No change', 'no']] },
+  { id: 'brightSolid', q: 'Did the RED go DIM for 3 seconds, then BRIGHT again?', hint: 'Same test on a solid colour.',
+    variants: BRIGHT_FORMS.map(f => ['7e070503ff000010ef', 1000, f(8), 3000, f(100)]),
+    answers: [['Dim → bright ✓', 'yes'], ['No change', 'no']] },
+];
+
+let ti = 0, vi = 0, lastPacket = '';
+
+function colorPacket(template, [r, g, b]) {
+  // Swap the RGB bytes (positions 4-6 of the winning red packet) for a new colour.
+  const bytes = template.match(/.{2}/g);
+  bytes[4] = r.toString(16).padStart(2, '0'); bytes[5] = g.toString(16).padStart(2, '0'); bytes[6] = b.toString(16).padStart(2, '0');
+  return bytes.join('');
+}
+function colorTemplate() { const w = results.tests.red; return (w && w.packet) || '7e070503ff000010ef'; }
+
+async function streamRainbow(fps, ms) {
+  const tpl = colorTemplate(), start = Date.now();
+  let n = 0;
+  while (Date.now() - start < ms && chr) {
+    const h = ((Date.now() - start) / ms) * 360;
+    await write(colorPacket(tpl, hsv(h)));
+    n++;
+    await wait(1000 / fps);
+  }
+  const real = (n / (ms / 1000)).toFixed(1);
+  log('Streamed ' + n + ' packets (' + real + '/s actual)');
+  return 'stream ' + fps + '/s target, ' + real + '/s actual';
+}
+function hsv(h) {
+  const f = n => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - Math.max(0, Math.min(k, 4 - k, 1)))); };
+  return [f(5), f(3), f(1)];
+}
+
+function startWizard() { ti = TESTS.findIndex(t => !results.tests[t.id]); if (ti < 0) ti = TESTS.length; vi = 0; runCurrent(); }
+
+async function runCurrent() {
+  const bar = document.getElementById('bar');
+  bar.style.width = (100 * ti / TESTS.length) + '%';
+  if (ti >= TESTS.length) {
+    document.getElementById('stepInfo').textContent = 'All tests done';
+    document.getElementById('question').textContent = '🎉 Done! Tap "Copy results" and send them to Claude.';
+    document.getElementById('hint').textContent = '';
+    document.getElementById('answers').innerHTML = '';
+    document.getElementById('sentPacket').textContent = '';
+    return;
+  }
+  const t = TESTS[ti];
+  document.getElementById('stepInfo').textContent = 'Test ' + (ti + 1) + ' of ' + TESTS.length + (t.variants ? ' · try ' + (vi + 1) + ' of ' + t.variants.length : '');
+  document.getElementById('question').textContent = t.q;
+  document.getElementById('hint').textContent = t.hint || '';
+  renderAnswers(t);
+  await send();
+}
+
+async function send() {
+  const t = TESTS[ti];
+  if (!chr) { log('Connect first'); return; }
+  if (t.run) lastPacket = await t.run();
+  else {
+    const v = t.variants[vi];
+    const steps = Array.isArray(v) ? v : [v];
+    const sent = [];
+    document.getElementById('sentPacket').textContent = 'sending…';
+    for (let st of steps) {
+      if (typeof st === 'function') st = st();
+      if (typeof st === 'number') await wait(st);
+      else { await write(st); sent.push(st); }
+    }
+    lastPacket = sent.join(' > ');
+  }
+  document.getElementById('sentPacket').textContent = 'sent: ' + lastPacket;
+  log('TX ' + lastPacket);
+}
+function resend() { if (ti < TESTS.length) send(); }
+
+function renderAnswers(t) {
+  const a = t.answers || [['Yes', 'yes'], ['No', 'no']];
+  const box = document.getElementById('answers');
+  box.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = a.length > 2 ? 'grid4' : 'row';
+  a.forEach(([label, val]) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.className = val === 'yes' ? 'yes' : (val === 'no' ? 'no' : 'ghost');
+    b.onclick = () => answer(val);
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+}
+
+async function answer(val) {
+  const t = TESTS[ti];
+  const tries = ((results.tests[t.id] && results.tests[t.id].tries) || []).concat([[vi, val]]);
+  const ok = val === 'yes' || val === 'reversed';
+  if (!ok && t.variants && vi < t.variants.length - 1) { results.tests[t.id] = { tries }; vi++; return runCurrent(); }
+  results.tests[t.id] = { answer: val, packet: lastPacket, first: lastPacket.split(' > ')[0], variantIndex: t.variants ? vi : null, tries };
+  save();
+  if (t.after) await t.after();
+  ti++; vi = 0; runCurrent();
+}
+function skipTest() { if (ti >= TESTS.length) return; results.tests[TESTS[ti].id] = { answer: 'skipped' }; save(); ti++; vi = 0; runCurrent(); }
+
+// ---------- Results ----------
+function renderResults() {
+  const has = results.device || Object.keys(results.tests).length;
+  document.getElementById('results').textContent = has ? JSON.stringify(results, null, 1) : '(none yet)';
+}
+async function copyResults() {
+  const txt = JSON.stringify(results);
+  try { await navigator.clipboard.writeText(txt); log('Copied to clipboard'); }
+  catch (e) {
+    // Fallback for browsers without clipboard permission
+    const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); log('Copied'); } catch (e2) { log('Copy failed. Screenshot the results instead.'); }
+    ta.remove();
+  }
+}
+function resetAll() { if (!confirm('Clear all results?')) return; results = { device: results.device, tests: {} }; save(); startWizard(); }
+
+renderResults();
+if (!navigator.bluetooth) { document.getElementById('status').textContent = 'This browser has no Bluetooth. Open this page in Bluefy.'; }
+</script>
+</body>
+</html>

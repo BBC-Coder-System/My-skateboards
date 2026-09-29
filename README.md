@@ -15,6 +15,7 @@ https://bbc-coder-system.github.io/My-skateboards/
 | File | What it is |
 |---|---|
 | `index.html` | **The app.** Single file, no build step. Everything (UI, BLE, effects, the 234-effect table) is inside. |
+| `probe2.html` | Effect Command Finder: tests versions of the built-in effect, speed and brightness commands (on a moving effect and on a solid colour). Created because Fire 2 showed the LotusLamp X versions of these commands **don't work** on the strip (effect #214 just cycled colours; brightness and speed did nothing). |
 | `probe.html` | Guided protocol finder: taps through command variants and asks "did the strip do X?". This is how the first commands were confirmed. Reuse this pattern for any new command that needs checking. |
 | `vendor/NoSleep.min.js` | NoSleep.js v0.12.0 (MIT). Keeps the iPhone screen awake in Ride mode. Stored locally so it works with no signal. |
 | `test.html`, `phase3-test.html` | Early experiments. Kept for reference only. |
@@ -37,7 +38,8 @@ _Last updated 2026-09-30._
 2. **Strip-level brightness and speed** for built-in effects.
 3. **Strip setup** (Settings): LED count and wire order. Still need to find the real LED count. Tap *Set LED count*, then watch the "Red Tail" test run end to end.
 4. **Ride mode** (keeps the screen awake) and the **phone-lock hand-off** (switches the strip to a built-in effect when the phone locks).
-5. **Fire 2 · Living flame** (Flow tab): runs a warm built-in effect that varies along the strip (#214 Orange flame by default; also #220, #233, #222) while the phone flickers the strip's brightness and gusts its flow speed. Depends on the new effect/brightness/speed commands above. If brightness doesn't work, the flame still moves but won't flicker.
+5. ❌ **2026-09-30 feedback: Fire 2 doesn't work.** The strip only cycled colours and brightness/speed did nothing, so the LotusLamp X effect/brightness/speed commands are wrong for this strip. Waiting for `probe2.html` results to pick the right versions, then fix `CMD.mode/speed/bright` and Fire 2.
+   **Fire 2 · Living flame** (Flow tab): runs a warm built-in effect that varies along the strip (#214 Orange flame by default; also #220, #233, #222) while the phone flickers the strip's brightness and gusts its flow speed. Depends on the new effect/brightness/speed commands above. If brightness doesn't work, the flame still moves but won't flicker.
 6. Stability fixes for disconnects and frozen strobes. Check whether the drop counter in the status pill keeps climbing.
 7. **Music** (phone mic) and **Motion** tabs: it's unknown whether Bluefy grants mic and motion access.
 
