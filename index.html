@@ -59,8 +59,8 @@
             <button style="background:#3498db; color:white; width: 30%;" onclick="saveCustomName()">Rename</button>
         </div>
 
-        <label>Effect Speed (Fast Responsive)</label>
-        <input type="range" id="speed" min="1" max="255" value="128" oninput="throttledApplyMode()">
+        <label>Effect Speed Control</label>
+        <input type="range" id="speed" min="1" max="255" value="128" oninput="throttledApplySpeed()">
     </div>
 
     <!-- Interactive Features: Music Sync & Accelerometer -->
@@ -78,7 +78,6 @@
         let isMicActive = false, isMotionActive = false;
         let audioCtx, analyser, micStream;
 
-        // Default Full Hardware Mode Table
         const defaultModes = {
             "80": "Red Breathing / Pulse",
             "81": "Green Breathing / Pulse",
@@ -110,7 +109,6 @@
             "9b": "White Strobe"
         };
 
-        // Load custom renamed labels from LocalStorage
         let customModes = JSON.parse(localStorage.getItem('board_effect_names')) || defaultModes;
 
         function populateModeDropdown() {
@@ -139,7 +137,6 @@
             }
         }
 
-        // Bluetooth Connection
         async function connectBLE() {
             const statusDiv = document.getElementById('status');
             try {
@@ -164,25 +161,18 @@
             }
         }
 
-        // --- NON-BLOCKING QUEUED SENDER (FIXES 1-MINUTE BUFFER LAG) ---
         async function sendHex(hexString) {
             if (!bleCharacteristic) return;
-            
-            // Keep only the newest packet
             pendingHex = hexString;
-
-            // If a packet write is already running, skip adding to queue
             if (isSending) return;
-
             isSending = true;
 
             while (pendingHex !== null) {
                 const currentHex = pendingHex;
-                pendingHex = null; // Clear queue indicator
+                pendingHex = null;
 
                 try {
                     const bytes = new Uint8Array(currentHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                    
                     if (bleCharacteristic.properties.writeWithoutResponse) {
                         await bleCharacteristic.writeValueWithoutResponse(bytes);
                     } else {
@@ -192,8 +182,7 @@
                     console.error("BLE Send Error:", e);
                 }
 
-                // Minimum throttle gap to keep controller buffer clear
-                await new Promise(resolve => setTimeout(resolve, 35));
+                await new Promise(resolve => setTimeout(resolve, 30));
             }
 
             isSending = false;
@@ -215,34 +204,45 @@
 
         function updateColor() {
             const hex = document.getElementById('colorPicker').value;
-            const r = parseInt(hex.substr(1, 2), 16);
-            const g = parseInt(hex.substr(3, 2), 16);
-            const b = parseInt(hex.substr(5, 2), 16);
-            const brightness = parseInt(document.getElementById('brightness').value);
+            let r = parseInt(hex.substr(1, 2), 16);
+            let g = parseInt(hex.substr(3, 2), 16);
+            let b = parseInt(hex.substr(5, 2), 16);
+            const brightness = parseInt(document.getElementById('brightness').value) / 255;
 
-            setColor(r, g, b, brightness);
+            // Direct RGB Hardware Scaling for True Dimming
+            r = Math.round(r * brightness);
+            g = Math.round(g * brightness);
+            b = Math.round(b * brightness);
+
+            // Step 1: Force exit hardware mode lock
+            sendHex("7e04030000000000ef"); 
+            // Step 2: Apply Scaled Static RGB
+            setColor(r, g, b);
         }
 
-        function setColor(r, g, b, bright = 255) {
+        function setColor(r, g, b) {
             const hexR = Math.min(255, Math.max(0, r)).toString(16).padStart(2, '0');
             const hexG = Math.min(255, Math.max(0, g)).toString(16).padStart(2, '0');
             const hexB = Math.min(255, Math.max(0, b)).toString(16).padStart(2, '0');
-            const hexBright = Math.min(255, Math.max(0, bright)).toString(16).padStart(2, '0');
             
-            sendHex(`7e070503${hexR}${hexG}${hexB}${hexBright}00ef`);
-        }
-
-        function throttledApplyMode() {
-            stopInteractiveModes();
-            applyMode();
+            sendHex(`7e070503${hexR}${hexG}${hexB}ff00ef`);
         }
 
         function applyMode() {
+            stopInteractiveModes();
             const modeHex = document.getElementById('modeSelect').value;
             const speed = parseInt(document.getElementById('speed').value);
             const hexSpeed = speed.toString(16).padStart(2, '0');
 
+            // Set Effect Mode
             sendHex(`7e0503${modeHex}${hexSpeed}000000ef`);
+        }
+
+        function throttledApplySpeed() {
+            const speed = parseInt(document.getElementById('speed').value);
+            const hexSpeed = speed.toString(16).padStart(2, '0');
+            // Dedicated standalone speed packet (Prevents mode restart lag)
+            sendHex(`7e0402${hexSpeed}00000000ef`);
         }
 
         // --- PHONE MIC MUSIC SYNC ---
@@ -280,13 +280,13 @@
             for (let i = 0; i < 4; i++) bassSum += dataArray[i];
             let bassAvg = bassSum / 4;
 
-            let dimLevel = parseInt(document.getElementById('brightness').value);
-            let dynamicBright = Math.floor((bassAvg / 255) * dimLevel);
+            let dimFactor = parseInt(document.getElementById('brightness').value) / 255;
+            let dynamicLevel = Math.floor((bassAvg / 255) * 255 * dimFactor);
 
             if (bassAvg > 100) {
-                setColor(0, 240, 255, dynamicBright);
+                setColor(0, dynamicLevel, dynamicLevel);
             } else {
-                setColor(10, 20, 40, Math.floor(dynamicBright * 0.2));
+                setColor(0, 0, Math.floor(dynamicLevel * 0.2));
             }
 
             requestAnimationFrame(processAudioBeat);
@@ -327,13 +327,13 @@
             let totalAcc = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
             document.getElementById('sensorDisplay').innerText = `G-Force Vector: ${totalAcc.toFixed(2)} m/s²`;
 
-            let dimLevel = parseInt(document.getElementById('brightness').value);
+            let dimFactor = parseInt(document.getElementById('brightness').value) / 255;
             if (totalAcc > 15) {
-                setColor(255, 0, 50, dimLevel);
+                setColor(Math.round(255 * dimFactor), 0, Math.round(50 * dimFactor));
             } else if (totalAcc > 11) {
-                setColor(0, 240, 255, Math.floor(dimLevel * 0.8));
+                setColor(0, Math.round(240 * dimFactor), Math.round(255 * dimFactor));
             } else {
-                setColor(0, 50, 200, Math.floor(dimLevel * 0.3));
+                setColor(0, Math.round(50 * dimFactor), Math.round(200 * dimFactor));
             }
         }
 
