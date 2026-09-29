@@ -3,51 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BLE Protocol Sniffer / Crack Tool</title>
+    <title>BLE Phase 2 Protocol Crack</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #121212; color: #fff; padding: 15px; max-width: 500px; margin: 0 auto; text-align: center; }
         h1 { font-size: 18px; color: #00f0ff; }
         .card { background: #1e1e1e; border-radius: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid #333; }
-        button { padding: 10px 14px; font-size: 13px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin: 4px; }
-        .btn-main { background: #00f0ff; color: #000; width: 100%; font-size: 15px; }
-        .btn-hex { background: #2d3748; color: #63b3ed; border: 1px solid #4a5568; }
-        .btn-send { background: #48bb78; color: #fff; width: 100%; margin-top: 8px; font-size: 15px; }
-        input[type="text"] { width: 100%; padding: 10px; background: #000; color: #00ffcc; border: 1px solid #00f0ff; border-radius: 6px; font-size: 16px; box-sizing: border-box; text-align: center; font-family: monospace; }
-        #log { background: #000; color: #00ff00; font-family: monospace; font-size: 11px; text-align: left; padding: 8px; border-radius: 6px; height: 120px; overflow-y: auto; margin-top: 10px; }
+        button { padding: 10px 14px; font-size: 13px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin: 4px; display: block; width: 100%; }
+        .btn-main { background: #00f0ff; color: #000; font-size: 15px; }
+        .btn-hex { background: #2d3748; color: #63b3ed; border: 1px solid #4a5568; text-align: left; }
+        #log { background: #000; color: #00ff00; font-family: monospace; font-size: 11px; text-align: left; padding: 8px; border-radius: 6px; height: 140px; overflow-y: auto; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h1>🔍 BLE Protocol Crack Tool</h1>
+    <h1>🔍 Phase 2: Color Opcode Crack</h1>
     <div id="status" style="color: #ecc94b; font-size: 13px; margin-bottom: 8px;">Status: Disconnected</div>
 
     <div class="card">
         <button class="btn-main" onclick="connectBLE()">Connect BLE Controller</button>
     </div>
 
-    <!-- Manual Hex Sender -->
     <div class="card">
-        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 4px;">RAW HEX PAYLOAD TO SEND</label>
-        <input type="text" id="rawHex" value="7e070503ff0000ff00ef">
-        <button class="btn-send" onclick="sendCustomHex()">🚀 Send Custom Hex Packet</button>
-    </div>
+        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">TEST SUITE: RED COLOR OPCODES</label>
+        
+        <!-- Standard Color Opcode Variations -->
+        <button class="btn-hex" onclick="send('7e0001ff0000000000ef')">1. Opcode 01 (RGB): 7e0001ff0000000000ef</button>
+        <button class="btn-hex" onclick="send('7e0002ff0000000000ef')">2. Opcode 02 (RGB): 7e0002ff0000000000ef</button>
+        <button class="btn-hex" onclick="send('7e0003ff0000000000ef')">3. Opcode 03 (RGB): 7e0003ff0000000000ef</button>
+        <button class="btn-hex" onclick="send('7e0005ff0000000000ef')">4. Opcode 05 (RGB): 7e0005ff0000000000ef</button>
+        <button class="btn-hex" onclick="send('7e0007ff0000000000ef')">5. Opcode 07 (RGB): 7e0007ff0000000000ef</button>
 
-    <!-- Test Suite 1: Headers & Format Variations for Pure Solid RED -->
-    <div class="card">
-        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">TEST SUITE 1: Solid RED Variations</label>
-        <button class="btn-hex" onclick="setAndSend('7e070503ff0000ff00ef')">7e070503... (Standard 9B)</button>
-        <button class="btn-hex" onclick="setAndSend('7e000503ff00000000ef')">7e000503... (Zero-Header)</button>
-        <button class="btn-hex" onclick="setAndSend('7e0403fff000000000ef')">7e0403ff... (Variant B)</button>
-        <button class="btn-hex" onclick="setAndSend('7e0001ff0000000000ef')">7e0001ff... (Opcode 01)</button>
-        <button class="btn-hex" onclick="setAndSend('a5000503ff000000005a')">a5...5a (Alternative Frame)</button>
-    </div>
+        <!-- Addressable / Strip Specific Formats -->
+        <button class="btn-hex" onclick="send('7e000503ff00000000ef')">6. Sub-Op 05 03: 7e000503ff00000000ef</button>
+        <button class="btn-hex" onclick="send('7e000501ff00000000ef')">7. Sub-Op 05 01: 7e000501ff00000000ef</button>
+        <button class="btn-hex" onclick="send('7e000800ff00000000ef')">8. Opcode 08: 7e000800ff00000000ef</button>
 
-    <!-- Test Suite 2: Mode Override / Reset Commands -->
-    <div class="card">
-        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">TEST SUITE 2: Force Break Hardware Lockout</label>
-        <button class="btn-hex" onclick="setAndSend('7e00040000000000ef')">Reset Mode (7e000400...)</button>
-        <button class="btn-hex" onclick="setAndSend('7e0503000000000000ef')">Set Mode 0x00 (Static)</button>
-        <button class="btn-hex" onclick="setAndSend('7e0004f00001ff00ef')">Power Cycle Frame</button>
+        <!-- RGBW (4-Color / 10-Byte) Format -->
+        <button class="btn-hex" onclick="send('7e000503ff0000000000ef')">9. RGBW Format: 7e000503ff0000000000ef</button>
     </div>
 
     <div id="log">--- Execution Log ---<br></div>
@@ -63,7 +55,6 @@
 
         async function connectBLE() {
             try {
-                log("Searching...");
                 bleDevice = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
@@ -71,38 +62,22 @@
 
                 const server = await bleDevice.gatt.connect();
                 const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
-                
-                // Get all characteristics to inspect properties
-                const characteristics = await service.getCharacteristics();
-                log(`Found ${characteristics.length} characteristics.`);
-                
-                for (let c of characteristics) {
-                    log(`Char: ${c.uuid} | Props: W=${c.properties.write}, WNoResp=${c.properties.writeWithoutResponse}`);
-                }
-
-                // Default target characteristic
                 bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
-                document.getElementById('status').innerText = "Connected to: " + bleDevice.name;
+                
+                document.getElementById('status').innerText = "Connected!";
                 document.getElementById('status').style.color = "#48bb78";
-                log("Connected successfully!");
+                log("Connected to BLE.");
             } catch (e) {
                 log("Err: " + e.message);
             }
         }
 
-        function setAndSend(hex) {
-            document.getElementById('rawHex').value = hex;
-            sendCustomHex();
-        }
-
-        async function sendCustomHex() {
+        async function send(hex) {
             if (!bleCharacteristic) {
-                log("Error: Connect BLE first.");
+                log("Err: Connect BLE first!");
                 return;
             }
-            const hex = document.getElementById('rawHex').value.trim();
             log("Sending: " + hex);
-
             try {
                 const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
                 if (bleCharacteristic.properties.writeWithoutResponse) {
@@ -110,9 +85,9 @@
                 } else {
                     await bleCharacteristic.writeValue(bytes);
                 }
-                log("-> Sent successfully.");
+                log("-> Sent!");
             } catch (e) {
-                log("-> Send failed: " + e.message);
+                log("-> Failed: " + e.message);
             }
         }
     </script>
