@@ -1,129 +1,645 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BLE Phase 3 Deep Protocol Crack</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #121212; color: #fff; padding: 15px; max-width: 500px; margin: 0 auto; text-align: center; }
-        h1 { font-size: 18px; color: #00f0ff; }
-        .card { background: #1e1e1e; border-radius: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid #333; }
-        button { padding: 10px 14px; font-size: 13px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin: 4px; display: block; width: 100%; }
-        .btn-main { background: #00f0ff; color: #000; font-size: 15px; }
-        .btn-hex { background: #2d3748; color: #63b3ed; border: 1px solid #4a5568; text-align: left; }
-        #log { background: #000; color: #00ff00; font-family: monospace; font-size: 11px; text-align: left; padding: 8px; border-radius: 6px; height: 160px; overflow-y: auto; margin-top: 10px; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0d14">
+<title>Board Lights</title>
+<style>
+  :root { --bg:#0b0d14; --card:#151a26; --line:#262d3d; --text:#e2e8f0; --dim:#8a94a8; --accent:#22d3ee; --ok:#34d399; --bad:#f87171; --warn:#fbbf24; }
+  * { box-sizing:border-box; -webkit-user-select:none; user-select:none; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; -webkit-tap-highlight-color:transparent; }
+  main { max-width:480px; margin:0 auto; padding:12px 16px calc(96px + env(safe-area-inset-bottom)); }
+  button { font:inherit; border:none; border-radius:12px; cursor:pointer; color:var(--text); background:#222a3a; padding:12px; font-weight:600; }
+  button:active { transform:scale(.96); }
+  input[type=text] { -webkit-user-select:text; user-select:text; }
+
+  /* Top bar */
+  .top { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .pill { flex:1; display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:10px 14px; font-size:13px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); flex:none; }
+  .dot.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .dot.busy { background:var(--warn); animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.3; } }
+  #btnPower { width:56px; height:56px; border-radius:50%; font-size:24px; background:#1b3a2e; color:var(--ok); flex:none; }
+  #btnPower.off { background:#3a1b1b; color:var(--bad); }
+
+  /* Preview + master sliders */
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:12px; }
+  #preview { height:14px; border-radius:7px; background:#000; margin-bottom:12px; transition:background .05s; box-shadow:0 0 18px rgba(0,0,0,.5); }
+  .slider { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--dim); margin:6px 0; }
+  .slider label { width:78px; flex:none; }
+  .slider input { flex:1; accent-color:var(--accent); height:28px; }
+  .slider .val { width:40px; text-align:right; font-variant-numeric:tabular-nums; color:var(--text); }
+  .label { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:2px 0 10px; }
+  .hint { font-size:12px; color:var(--dim); margin:6px 0; line-height:1.4; }
+  .warn { color:var(--warn); }
+
+  /* Favourites */
+  #favs { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:12px; }
+  #favs:empty { display:none; }
+  .fav { flex:none; padding:10px 14px; border-radius:999px; font-size:13px; background:#1d2536; border:1px solid var(--line); }
+  .fav.active { border-color:var(--accent); color:var(--accent); }
+
+  /* Effect tiles */
+  .tiles { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .tile { text-align:left; padding:14px; min-height:64px; border:1px solid var(--line); background:#1a2130; }
+  .tile.active { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .tile .n { font-size:15px; }
+  .tile .d { font-size:11px; color:var(--dim); font-weight:400; margin-top:3px; }
+  .swatches { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+  .sw { aspect-ratio:1; border-radius:50%; border:2px solid rgba(255,255,255,.15); padding:0; }
+  .modes { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .mode { padding:10px 4px; font-size:12px; min-height:52px; border:1px solid var(--line); background:#1a2130; }
+  .mode.active { border-color:var(--accent); color:var(--accent); }
+  .mode.star { background:#2a2440; }
+  .mode small { display:block; color:var(--dim); font-weight:400; font-size:10px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* Params */
+  #params:empty { display:none; }
+  .colors { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input[type=color] { width:44px; height:44px; border:none; border-radius:50%; padding:0; background:none; }
+  input[type=color]::-webkit-color-swatch-wrapper { padding:0; }
+  input[type=color]::-webkit-color-swatch { border:2px solid rgba(255,255,255,.2); border-radius:50%; }
+  .small { padding:8px 12px; font-size:13px; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row > * { flex:1; }
+  .primary { background:var(--accent); color:#04111a; }
+  #meter { height:8px; border-radius:4px; background:#000; overflow:hidden; margin-top:8px; }
+  #meter > div { height:100%; width:0; background:var(--ok); }
+
+  /* Bottom tabs */
+  nav { position:fixed; left:0; right:0; bottom:0; background:rgba(11,13,20,.96); border-top:1px solid var(--line); display:flex; justify-content:center; padding:6px 4px calc(6px + env(safe-area-inset-bottom)); backdrop-filter:blur(10px); }
+  nav .in { display:flex; width:100%; max-width:480px; }
+  nav button { flex:1; background:none; padding:6px 2px; font-size:10px; color:var(--dim); display:flex; flex-direction:column; align-items:center; gap:2px; }
+  nav button span { font-size:20px; }
+  nav button.active { color:var(--accent); }
+  .hidden { display:none !important; }
+  #toast { position:fixed; left:50%; top:16px; transform:translateX(-50%); background:#1d2536; border:1px solid var(--line); padding:10px 16px; border-radius:12px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:10; max-width:90vw; }
+  #toast.show { opacity:1; }
+</style>
 </head>
 <body>
-
-    <h1>🔍 Phase 3: Deep Protocol Crack</h1>
-    <div id="status" style="color: #ecc94b; font-size: 13px; margin-bottom: 8px;">Status: Disconnected</div>
-
-    <div class="card">
-        <button class="btn-main" onclick="connectBLE()">Connect & Scan BLE</button>
+<main>
+  <div class="top">
+    <div class="pill" id="connPill" onclick="onPillTap()">
+      <div class="dot" id="connDot"></div>
+      <div id="connText">Tap to connect</div>
     </div>
+    <button id="btnPower" onclick="togglePower()" aria-label="Power">⏻</button>
+  </div>
 
+  <div class="card">
+    <div id="preview"></div>
+    <div class="slider"><label>Brightness</label><input type="range" id="bright" min="3" max="100" value="100"><span class="val" id="brightVal">100%</span></div>
+    <div class="slider" id="speedRow"><label>Speed</label><input type="range" id="speed" min="10" max="400" value="100"><span class="val" id="speedVal">1.0×</span></div>
+  </div>
+
+  <div id="favs"></div>
+
+  <section id="tab-colour">
     <div class="card">
-        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">MODE-BASED & ALTERNATE PAYLOADS</label>
-        
-        <!-- Mode 0x00 / 0x01 Color Encapsulation -->
-        <button class="btn-hex" onclick="send('7e070300ff00000000ef')">1. Mode 00 (Pure Red): 7e070300ff00000000ef</button>
-        <button class="btn-hex" onclick="send('7e000301ff00000000ef')">2. Mode 01 Encapsulation: 7e000301ff00000000ef</button>
-        <button class="btn-hex" onclick="send('7e000503ff0000ff00ef')">3. Header 7e000503...ff00: 7e000503ff0000ff00ef</button>
-        
-        <!-- Alternative Command IDs -->
-        <button class="btn-hex" onclick="send('7e0022ff0000000000ef')">4. Opcode 0x22 (RGB): 7e0022ff0000000000ef</button>
-        <button class="btn-hex" onclick="send('7e0061ff0000000000ef')">5. Opcode 0x61 (RGB): 7e0061ff0000000000ef</button>
-        <button class="btn-hex" onclick="send('7e000a03ff00000000ef')">6. Header 0a03 (RGB): 7e000a03ff00000000ef</button>
-
-        <!-- Alternative Characteristic Test -->
-        <button class="btn-hex" style="background:#805ad5; color:#fff;" onclick="sendToAltChar('7e070503ff0000ff00ef')">7. Send Standard Red to ALL Found Characteristics</button>
+      <div class="label">Solid colour</div>
+      <div class="swatches" id="swatches"></div>
+      <div class="row" style="align-items:center">
+        <input type="color" id="picker" value="#22d3ee" style="flex:none">
+        <div class="hint" style="flex:1">Tap the circle for any colour</div>
+      </div>
     </div>
+  </section>
 
-    <div id="log">--- Execution Log ---<br></div>
+  <section id="tab-flow" class="hidden"><div class="card"><div class="label">Colour flows</div><div class="tiles" data-group="flow"></div></div></section>
+  <section id="tab-flash" class="hidden"><div class="card"><div class="label">Flash &amp; strobe</div><div class="tiles" data-group="flash"></div></div></section>
+  <section id="tab-music" class="hidden">
+    <div class="card">
+      <div class="label">Music reactive (phone microphone)</div>
+      <div class="tiles" data-group="music"></div>
+      <div id="meter"><div></div></div>
+      <div class="hint" id="micHint">Pick an effect to start listening.</div>
+    </div>
+  </section>
+  <section id="tab-motion" class="hidden">
+    <div class="card">
+      <div class="label">Motion reactive (phone sensors)</div>
+      <div class="tiles" data-group="motion"></div>
+      <div id="meter2" style="height:8px;border-radius:4px;background:#000;overflow:hidden;margin-top:8px"><div style="height:100%;width:0;background:var(--warn)"></div></div>
+      <div class="hint">Keep the phone in your pocket or strapped to you. "Jolt" reacts to bumps, landings and hard stops.</div>
+    </div>
+  </section>
+  <section id="tab-builtin" class="hidden">
+    <div class="card">
+      <div class="label">Built-in effects (run on the strip itself)</div>
+      <div class="hint">These keep running even when your phone is locked, and some <b>move along</b> the strip. Long-press a number to name or star it.</div>
+      <div class="modes" id="modes"></div>
+      <div class="slider" style="margin-top:12px"><label>Strip speed</label><input type="range" id="hwSpeed" min="0" max="100" value="50"><span class="val" id="hwSpeedVal">50</span></div>
+      <div class="hint">Strip speed is experimental. It didn't clearly work in the test.</div>
+    </div>
+  </section>
 
-    <script>
-        let bleDevice, primaryService;
-        let characteristicsMap = [];
+  <div class="card" id="params"></div>
 
-        function log(msg) {
-            const l = document.getElementById('log');
-            l.innerHTML += msg + "<br>";
-            l.scrollTop = l.scrollHeight;
-        }
+  <div class="card">
+    <div class="row" style="margin-top:0">
+      <button class="small" onclick="saveFavourite()">★ Save as favourite</button>
+      <button class="small" onclick="openSettings()">⚙ Settings</button>
+    </div>
+    <div id="settings" class="hidden" style="margin-top:12px">
+      <div class="slider"><label>Update rate</label><input type="range" id="fps" min="8" max="40" value="20"><span class="val" id="fpsVal">20/s</span></div>
+      <div class="hint">How many colour updates per second custom effects send. Your strip was smooth at about 20.</div>
+      <div class="label" style="margin-top:12px">When the phone locks</div>
+      <div class="hint">iPhone pauses web pages when the screen locks, so custom effects freeze. Choose what the strip does then:</div>
+      <select id="lockAction" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
+        <option value="keep">Keep the last colour</option>
+        <option value="builtin">Switch to a built-in effect (keeps animating)</option>
+      </select>
+      <div class="slider" id="lockModeRow"><label>Built-in #</label><input type="range" id="lockMode" min="0" max="99" value="28"><span class="val" id="lockModeVal">28</span></div>
+      <div class="row">
+        <button class="small" onclick="disconnect()">Disconnect</button>
+        <button class="small" onclick="clearFavourites()">Clear favourites</button>
+      </div>
+      <div class="hint">Debug pages: <a href="probe.html" style="color:var(--accent)">protocol finder</a> · <a href="test.html" style="color:var(--accent)">mode sweeper</a></div>
+    </div>
+  </div>
+</main>
 
-        async function connectBLE() {
-            try {
-                log("Searching for BLE...");
-                bleDevice = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
-                });
+<nav><div class="in">
+  <button data-tab="colour" class="active"><span>🎨</span>Colour</button>
+  <button data-tab="flow"><span>🌊</span>Flow</button>
+  <button data-tab="flash"><span>⚡</span>Flash</button>
+  <button data-tab="music"><span>🎵</span>Music</button>
+  <button data-tab="motion"><span>🛹</span>Motion</button>
+  <button data-tab="builtin"><span>✨</span>Built-in</button>
+</div></nav>
+<div id="toast"></div>
 
-                const server = await bleDevice.gatt.connect();
-                primaryService = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
-                
-                characteristicsMap = await primaryService.getCharacteristics();
-                log(`Connected! Found ${characteristicsMap.length} characteristics:`);
-                
-                characteristicsMap.forEach(c => {
-                    log(` - ${c.uuid.substring(0, 8)} [Write: ${c.properties.write || c.properties.writeWithoutResponse}]`);
-                });
+<script>
+/* =====================================================================
+   PROTOCOL: MELK-OA10 (Lotus Lantern family). Confirmed by probe.html:
+   service FFF0 / write char FFF3, write-without-response.
+   ===================================================================== */
+const SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb';
+const CHAR    = '0000fff3-0000-1000-8000-00805f9b34fb';
+const h2 = n => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+const CMD = {
+  login:  ['7e0783', '7e0404'],
+  on:     '7e0404f00001ff00ef',
+  off:    '7e0404000000ff00ef',
+  color:  (r, g, b) => '7e070503' + h2(r) + h2(g) + h2(b) + '10ef',
+  mode:   m => '7e0503' + h2(0x80 + m) + '03ffff00ef',
+  speed:  s => '7e0402' + h2(s) + 'ffffff00ef',  // unconfirmed
+};
 
-                document.getElementById('status').innerText = "Connected to: " + (bleDevice.name || "Board");
-                document.getElementById('status').style.color = "#48bb78";
-            } catch (e) {
-                log("Err: " + e.message);
-            }
-        }
+/* ---------------- storage ---------------- */
+function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
-        async function send(hex) {
-            if (!characteristicsMap.length) {
-                log("Err: Connect BLE first!");
-                return;
-            }
-            
-            // Target FFF3 by default
-            let targetChar = characteristicsMap.find(c => c.uuid.includes("fff3")) || characteristicsMap[0];
-            
-            log("Sending to " + targetChar.uuid.substring(0, 8) + ": " + hex);
-            try {
-                const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                if (targetChar.properties.writeWithoutResponse) {
-                    await targetChar.writeValueWithoutResponse(bytes);
-                } else {
-                    await targetChar.writeValue(bytes);
-                }
-                log("-> Sent!");
-            } catch (e) {
-                log("-> Send failed: " + e.message);
-            }
-        }
+/* ---------------- state ---------------- */
+const S = {
+  power: true,
+  bright: 1, speed: 1, fps: load('fps', 20),
+  current: null,              // {kind:'solid'|'effect'|'builtin', id, params}
+  params: load('params', {}), // per-effect saved params
+  modeNames: load('modeNames', { 7: 'animation', 28: 'moves along strip' }),
+  modeStars: load('modeStars', [28]),
+  favs: load('favs', []),
+  lockAction: load('lockAction', 'keep'), lockMode: load('lockMode', 28),
+};
 
-        async function sendToAltChar(hex) {
-            if (!characteristicsMap.length) {
-                log("Err: Connect BLE first!");
-                return;
-            }
+/* ---------------- BLE link with coalescing writer ---------------- */
+let device = null, chr = null, userDisconnect = false, reconnecting = false;
+const cmdQueue = [];     // commands (power/mode) always go out, in order
+let pendingColor = null; // only the newest colour matters
+let inflight = false, lastColorHex = '';
 
-            const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-            
-            for (let c of characteristicsMap) {
-                if (c.properties.write || c.properties.writeWithoutResponse) {
-                    try {
-                        log("Testing Endpoint: " + c.uuid.substring(0, 8));
-                        if (c.properties.writeWithoutResponse) {
-                            await c.writeValueWithoutResponse(bytes);
-                        } else {
-                            await c.writeValue(bytes);
-                        }
-                        log("-> Sent successfully to " + c.uuid.substring(0, 8));
-                    } catch (e) {
-                        log("-> Failed on " + c.uuid.substring(0, 8) + ": " + e.message);
-                    }
-                }
-            }
-        }
-    </script>
+function pump() {
+  if (inflight || !chr) return;
+  let hex;
+  if (cmdQueue.length) { hex = cmdQueue.shift(); lastColorHex = ''; }
+  else if (pendingColor) { hex = pendingColor; pendingColor = null; if (hex === lastColorHex) return; lastColorHex = hex; }
+  else return;
+  inflight = true;
+  const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
+  const p = chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
+  p.catch(e => console.warn('write', e)).finally(() => { inflight = false; pump(); });
+}
+function sendCmd(hex) { cmdQueue.push(hex); pump(); }
+function sendColor(rgb) {
+  const b = S.bright;
+  const out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
+  document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
+  pendingColor = CMD.color(...out);
+  pump();
+}
+
+async function connect() {
+  if (!navigator.bluetooth) { toast('No Bluetooth here. Open this page in Bluefy.'); return; }
+  try {
+    setConn('busy', 'Choose your strip…');
+    device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'MELK' }, { namePrefix: 'ELK' }, { services: [SERVICE] }], optionalServices: [SERVICE] });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    userDisconnect = false;
+    await openGatt();
+  } catch (e) { setConn('off', 'Tap to connect'); if (e.name !== 'NotFoundError') toast(e.message); }
+}
+async function openGatt() {
+  setConn('busy', 'Connecting…');
+  const server = await device.gatt.connect();
+  const svc = await server.getPrimaryService(SERVICE);
+  chr = await svc.getCharacteristic(CHAR);
+  inflight = false; lastColorHex = '';
+  CMD.login.forEach(sendCmd);
+  sendCmd(S.power ? CMD.on : CMD.off);
+  setConn('on', (device.name || 'Strip').trim());
+  restoreOutput();
+}
+function onDisconnected() {
+  chr = null;
+  if (userDisconnect) { setConn('off', 'Tap to connect'); return; }
+  reconnect();
+}
+async function reconnect() {
+  if (reconnecting || !device) return;
+  reconnecting = true;
+  for (let i = 0; i < 30 && !userDisconnect; i++) {
+    setConn('busy', 'Reconnecting… (' + (i + 1) + ')');
+    try { await openGatt(); reconnecting = false; toast('Reconnected'); return; }
+    catch (e) { await new Promise(r => setTimeout(r, Math.min(1000 + i * 500, 5000))); }
+  }
+  reconnecting = false;
+  setConn('off', 'Lost connection. Tap to retry');
+}
+function disconnect() { userDisconnect = true; if (device && device.gatt.connected) device.gatt.disconnect(); }
+function onPillTap() { if (chr) return; if (device && !reconnecting) reconnect(); else if (!device) connect(); }
+function setConn(state, text) {
+  document.getElementById('connDot').className = 'dot ' + (state === 'on' ? 'on' : state === 'busy' ? 'busy' : '');
+  document.getElementById('connText').textContent = text;
+}
+
+/* ---------------- colour helpers ---------------- */
+const hexToRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function hsv(h, s = 1, v = 1) {
+  h = ((h % 360) + 360) % 360;
+  const f = n => { const k = (n + h / 60) % 6; return 255 * v * (1 - s * Math.max(0, Math.min(k, 4 - k, 1))); };
+  return [f(5), f(3), f(1)];
+}
+const mix = (a, b, t) => [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t);
+const scale = (c, k) => c.map(x => x * k);
+const smooth = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
+const BLACK = [0, 0, 0];
+
+/* ---------------- sensors: microphone ---------------- */
+const audio = { ctx: null, an: null, buf: null, level: 0, bass: 0, mid: 0, treble: 0, avg: 0.05, beat: false, beatCount: 0, lastBeat: 0 };
+async function startMic() {
+  if (audio.an) { if (audio.ctx.state === 'suspended') audio.ctx.resume(); return true; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    micHint('This browser won\'t give web pages the microphone. Try a Bluefy update or check its mic permission in iPhone Settings.', true);
+    return false;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audio.ctx.createMediaStreamSource(stream);
+    audio.an = audio.ctx.createAnalyser();
+    audio.an.fftSize = 1024; audio.an.smoothingTimeConstant = 0.5;
+    src.connect(audio.an);
+    if (audio.ctx.state === 'suspended') await audio.ctx.resume();
+    audio.buf = new Uint8Array(audio.an.frequencyBinCount);
+    micHint('Listening 🎤');
+    return true;
+  } catch (e) { micHint('Microphone blocked: ' + e.message + '. Allow mic for Bluefy in iPhone Settings.', true); return false; }
+}
+function readAudio() {
+  if (!audio.an) return;
+  audio.an.getByteFrequencyData(audio.buf);
+  const bins = audio.buf.length, hz = audio.ctx.sampleRate / 2 / bins;
+  const band = (lo, hi) => { let s = 0, n = 0; for (let i = Math.floor(lo / hz); i < Math.min(bins, hi / hz); i++) { s += audio.buf[i]; n++; } return n ? s / n / 255 : 0; };
+  audio.bass = band(30, 180); audio.mid = band(180, 2000); audio.treble = band(2000, 8000);
+  const lvl = audio.bass * 0.6 + audio.mid * 0.3 + audio.treble * 0.1;
+  audio.level = lvl;
+  // Simple beat detector: bass energy jumps well above its running average
+  audio.avg = audio.avg * 0.95 + audio.bass * 0.05;
+  const now = performance.now();
+  audio.beat = audio.bass > audio.avg * 1.35 + 0.04 && now - audio.lastBeat > 180;
+  if (audio.beat) { audio.lastBeat = now; audio.beatCount++; }
+  document.querySelector('#meter > div').style.width = Math.min(100, lvl * 160) + '%';
+}
+function micHint(t, bad) { const el = document.getElementById('micHint'); el.textContent = t; el.className = 'hint' + (bad ? ' warn' : ''); }
+
+/* ---------------- sensors: motion ---------------- */
+const motion = { on: false, jolt: 0, energy: 0, tiltHue: 0, lastJolt: 0 };
+async function startMotion() {
+  if (motion.on) return true;
+  try {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      const r = await DeviceMotionEvent.requestPermission();
+      if (r !== 'granted') { toast('Motion access was denied'); return false; }
+    }
+  } catch (e) { toast('Motion permission: ' + e.message); return false; }
+  window.addEventListener('devicemotion', e => {
+    const g = e.accelerationIncludingGravity || {}, a = e.acceleration;
+    let mag;
+    if (a && a.x != null) mag = Math.hypot(a.x, a.y, a.z);
+    else mag = Math.abs(Math.hypot(g.x || 0, g.y || 0, g.z || 0) - 9.81);
+    motion.energy = motion.energy * 0.92 + mag * 0.08;
+    motion.jolt = mag;
+    if (g.x != null) motion.tiltHue = (Math.atan2(g.y, g.x) * 180 / Math.PI + 360) % 360;
+    document.querySelector('#meter2 > div').style.width = Math.min(100, motion.energy * 12) + '%';
+  });
+  motion.on = true;
+  return true;
+}
+
+/* =====================================================================
+   EFFECTS: each returns [r,g,b] (0-255) for time t (seconds × speed).
+   p = params, st = per-run scratch state.
+   ===================================================================== */
+const EFFECTS = [
+  // ---- Flow ----
+  { id: 'rainbow', group: 'flow', name: 'Rainbow', desc: 'Cycle every hue',
+    params: { cycle: { label: 'Cycle (s)', min: 1, max: 30, step: 0.5, v: 6 }, sat: { label: 'Saturation', min: 0, max: 1, step: 0.05, v: 1 } },
+    fn: (t, p) => hsv(t / p.cycle * 360, p.sat) },
+  { id: 'palette', group: 'flow', name: 'Palette flow', desc: 'Glide through your colours',
+    params: { colors: { type: 'colors', v: ['#ff0066', '#7c3aed', '#22d3ee'] }, hold: { label: 'Each (s)', min: 0.3, max: 10, step: 0.1, v: 2 } },
+    fn: (t, p) => { const c = p.colors.map(hexToRgb), x = t / p.hold, i = Math.floor(x) % c.length; return mix(c[i], c[(i + 1) % c.length], smooth(x % 1)); } },
+  { id: 'breathe', group: 'flow', name: 'Breathe', desc: 'Slow fade in and out',
+    params: { color: { type: 'color', v: '#22d3ee' }, period: { label: 'Breath (s)', min: 0.5, max: 10, step: 0.1, v: 3 }, floor: { label: 'Lowest', min: 0, max: 0.8, step: 0.05, v: 0.05 } },
+    fn: (t, p) => scale(hexToRgb(p.color), p.floor + (1 - p.floor) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / p.period))) },
+  { id: 'fire', group: 'flow', name: 'Fire', desc: 'Flickering flames',
+    params: { heat: { label: 'Heat', min: 0, max: 1, step: 0.05, v: 0.6 } },
+    fn: (t, p, st) => { st.n = (st.n || 0.5) * 0.7 + Math.random() * 0.3; const k = 0.35 + 0.65 * st.n; return [255 * k, (40 + 120 * p.heat * st.n) * k, 0]; } },
+  { id: 'ocean', group: 'flow', name: 'Ocean', desc: 'Rolling blue-green waves',
+    params: {},
+    fn: t => { const w = 0.5 + 0.5 * Math.sin(t * 0.9) * Math.sin(t * 0.37 + 1); return mix([0, 40, 180], [0, 200, 170], w); } },
+  { id: 'sunset', group: 'flow', name: 'Sunset', desc: 'Warm orange-pink-purple',
+    params: { hold: { label: 'Each (s)', min: 0.5, max: 10, step: 0.1, v: 3 } },
+    fn: (t, p) => { const c = [[255, 60, 0], [255, 0, 80], [120, 0, 160], [255, 20, 40]], x = t / p.hold, i = Math.floor(x) % 4; return mix(c[i], c[(i + 1) % 4], smooth(x % 1)); } },
+
+  // ---- Flash ----
+  { id: 'strobe', group: 'flash', name: 'Strobe', desc: 'Hard on/off flashes',
+    params: { color: { type: 'color', v: '#ffffff' }, rate: { label: 'Flashes/s', min: 0.5, max: 10, step: 0.5, v: 5 }, duty: { label: 'On time', min: 0.1, max: 0.9, step: 0.05, v: 0.5 } },
+    fn: (t, p) => ((t * p.rate) % 1) < p.duty ? hexToRgb(p.color) : BLACK },
+  { id: 'police', group: 'flash', name: 'Police', desc: 'Red / blue double flash',
+    params: { a: { type: 'color', v: '#ff0000' }, b: { type: 'color', v: '#0000ff' } },
+    fn: (t, p) => { const s = Math.floor(t * 8) % 8; return [hexToRgb(p.a), BLACK, hexToRgb(p.a), BLACK, hexToRgb(p.b), BLACK, hexToRgb(p.b), BLACK][s]; } },
+  { id: 'alternate', group: 'flash', name: 'Alternate', desc: 'Snap between two colours',
+    params: { a: { type: 'color', v: '#ff00aa' }, b: { type: 'color', v: '#00ffcc' }, rate: { label: 'Switches/s', min: 0.5, max: 10, step: 0.5, v: 2 } },
+    fn: (t, p) => Math.floor(t * p.rate) % 2 ? hexToRgb(p.b) : hexToRgb(p.a) },
+  { id: 'heartbeat', group: 'flash', name: 'Heartbeat', desc: 'Lub-dub pulse',
+    params: { color: { type: 'color', v: '#ff0033' }, bpm: { label: 'BPM', min: 40, max: 180, step: 1, v: 70 } },
+    fn: (t, p) => { const x = (t * p.bpm / 60) % 1; const k = Math.max(Math.exp(-((x - 0.05) ** 2) / 0.002), 0.7 * Math.exp(-((x - 0.28) ** 2) / 0.002)); return scale(hexToRgb(p.color), k); } },
+  { id: 'randflash', group: 'flash', name: 'Random flash', desc: 'New random colour each flash',
+    params: { rate: { label: 'Flashes/s', min: 0.5, max: 8, step: 0.5, v: 3 } },
+    fn: (t, p, st) => { const n = Math.floor(t * p.rate); if (n !== st.n) { st.n = n; st.h = Math.random() * 360; } return ((t * p.rate) % 1) < 0.5 ? hsv(st.h) : BLACK; } },
+
+  // ---- Music ----
+  { id: 'mpulse', group: 'music', name: 'Volume pulse', desc: 'Brightness follows the music', needs: 'mic',
+    params: { color: { type: 'color', v: '#a855f7' }, gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2 } },
+    fn: (t, p) => scale(hexToRgb(p.color), Math.min(1, audio.level * p.gain) ** 1.5) },
+  { id: 'mbeat', group: 'music', name: 'Beat hop', desc: 'New colour on every beat', needs: 'mic',
+    params: { gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2 }, step: { label: 'Hue jump', min: 10, max: 180, step: 5, v: 60 } },
+    fn: (t, p, st) => { st.k = audio.beat ? 1 : (st.k || 0) * 0.85; return hsv(audio.beatCount * p.step, 1, Math.max(0.15, Math.min(1, st.k + audio.level * p.gain * 0.5))); } },
+  { id: 'mspec', group: 'music', name: 'Spectrum', desc: 'Bass=red, mids=green, highs=blue', needs: 'mic',
+    params: { gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2.5 } },
+    fn: (t, p) => [audio.bass, audio.mid, audio.treble].map(x => 255 * Math.min(1, x * p.gain) ** 1.6) },
+  { id: 'mflash', group: 'music', name: 'Beat strobe', desc: 'White flash on the beat', needs: 'mic',
+    params: { color: { type: 'color', v: '#ffffff' }, base: { type: 'color', v: '#1e1b4b' } },
+    fn: (t, p, st) => { st.k = audio.beat ? 1 : (st.k || 0) * 0.6; return mix(hexToRgb(p.base), hexToRgb(p.color), st.k); } },
+
+  // ---- Motion ----
+  { id: 'jolt', group: 'motion', name: 'Jolt flash', desc: 'Flash on bumps, landings and stops', needs: 'motion',
+    params: { color: { type: 'color', v: '#ff0000' }, base: { type: 'color', v: '#22d3ee' }, thresh: { label: 'Threshold', min: 2, max: 25, step: 0.5, v: 8 } },
+    fn: (t, p, st) => { if (motion.jolt > p.thresh) st.k = 1; st.k = (st.k || 0) * 0.88; return mix(scale(hexToRgb(p.base), 0.6), hexToRgb(p.color), st.k); } },
+  { id: 'energy', group: 'motion', name: 'Ride energy', desc: 'Calm blue → wild red the harder you ride', needs: 'motion',
+    params: { gain: { label: 'Sensitivity', min: 0.2, max: 3, step: 0.1, v: 1 } },
+    fn: (t, p) => { const e = Math.min(1, motion.energy * p.gain / 6); return hsv(220 - 220 * e, 1, 0.3 + 0.7 * e); } },
+  { id: 'tilt', group: 'motion', name: 'Tilt colour', desc: 'Colour follows how the phone is tilted', needs: 'motion',
+    params: {},
+    fn: () => hsv(motion.tiltHue) },
+];
+const byId = Object.fromEntries(EFFECTS.map(e => [e.id, e]));
+
+function paramsFor(e) {
+  const saved = S.params[e.id] || {};
+  const out = {};
+  for (const [k, spec] of Object.entries(e.params)) out[k] = saved[k] !== undefined ? saved[k] : spec.v;
+  return out;
+}
+
+/* ---------------- engine ---------------- */
+let timer = null, tVirtual = 0, lastTick = 0, scratch = {};
+function startEngine() {
+  stopEngine();
+  lastTick = performance.now();
+  timer = setInterval(tick, 1000 / S.fps);
+}
+function stopEngine() { if (timer) clearInterval(timer); timer = null; }
+function tick() {
+  const now = performance.now();
+  tVirtual += (now - lastTick) / 1000 * S.speed;
+  lastTick = now;
+  if (!S.power || !S.current || S.current.kind !== 'effect') return;
+  const e = byId[S.current.id];
+  if (e.needs === 'mic') readAudio();
+  try { sendColor(e.fn(tVirtual, S.current.params, scratch)); } catch (err) { console.warn(err); }
+}
+
+async function runEffect(id, params) {
+  const e = byId[id];
+  if (e.needs === 'mic' && !(await startMic())) return;
+  if (e.needs === 'motion' && !(await startMotion())) return;
+  scratch = {};
+  S.current = { kind: 'effect', id, params: params || paramsFor(e) };
+  ensureOn();
+  startEngine();
+  renderActive(); renderParams();
+}
+function setSolid(hex) {
+  stopEngine();
+  S.current = { kind: 'solid', id: hex };
+  ensureOn();
+  sendColor(hexToRgb(hex));
+  renderActive(); renderParams();
+}
+function setBuiltin(m) {
+  stopEngine();
+  S.current = { kind: 'builtin', id: m };
+  ensureOn();
+  sendCmd(CMD.mode(m));
+  document.getElementById('preview').style.background = 'linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f)';
+  renderActive(); renderParams();
+}
+function restoreOutput() {
+  if (!S.current || !S.power) return;
+  if (S.current.kind === 'solid') sendColor(hexToRgb(S.current.id));
+  else if (S.current.kind === 'builtin') sendCmd(CMD.mode(S.current.id));
+  else startEngine();
+}
+function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPower(); } }
+function togglePower() {
+  S.power = !S.power;
+  sendCmd(S.power ? CMD.on : CMD.off);
+  if (S.power) restoreOutput(); else { stopEngine(); document.getElementById('preview').style.background = '#000'; }
+  renderPower();
+}
+function renderPower() { document.getElementById('btnPower').className = S.power ? '' : 'off'; }
+
+/* ---------------- phone lock / background ---------------- */
+let wakeLock = null;
+async function keepAwake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (S.power && S.current && S.current.kind === 'effect' && S.lockAction === 'builtin') sendCmd(CMD.mode(S.lockMode));
+  } else {
+    keepAwake();
+    if (S.current && S.current.kind === 'effect' && S.power) { lastColorHex = ''; startEngine(); }
+    if (device && !chr && !userDisconnect) reconnect();
+  }
+});
+document.addEventListener('click', keepAwake, { once: true });
+
+/* ---------------- UI rendering ---------------- */
+function tileHtml(e) { return `<button class="tile" data-eff="${e.id}"><div class="n">${e.name}</div><div class="d">${e.desc}</div></button>`; }
+document.querySelectorAll('.tiles').forEach(box => {
+  box.innerHTML = EFFECTS.filter(e => e.group === box.dataset.group).map(tileHtml).join('');
+  box.addEventListener('click', ev => { const b = ev.target.closest('[data-eff]'); if (b) runEffect(b.dataset.eff); });
+});
+
+const SWATCHES = ['#ff0000', '#ff5500', '#ffaa00', '#ffff00', '#88ff00', '#00ff00', '#00ffaa', '#00ffff', '#0088ff', '#0000ff', '#8800ff', '#ff00ff', '#ff0088', '#ffffff', '#ffc38a', '#ff9eb5', '#a0ffe6', '#c4b5fd'];
+document.getElementById('swatches').innerHTML = SWATCHES.map(c => `<button class="sw" style="background:${c}" data-c="${c}"></button>`).join('');
+document.getElementById('swatches').addEventListener('click', ev => { const b = ev.target.closest('[data-c]'); if (b) setSolid(b.dataset.c); });
+document.getElementById('picker').addEventListener('input', ev => setSolid(ev.target.value));
+
+function renderModes() {
+  const box = document.getElementById('modes');
+  let html = '';
+  const order = [...S.modeStars, ...Array.from({ length: 100 }, (_, i) => i).filter(i => !S.modeStars.includes(i))];
+  for (const m of order) {
+    const name = S.modeNames[m] || '';
+    html += `<button class="mode${S.modeStars.includes(m) ? ' star' : ''}" data-mode="${m}">${S.modeStars.includes(m) ? '★ ' : ''}#${m}<small>${name || '&nbsp;'}</small></button>`;
+  }
+  box.innerHTML = html;
+  renderActive();
+}
+(function wireModes() {
+  const box = document.getElementById('modes');
+  let pressTimer = null, longPressed = false;
+  const start = ev => { const b = ev.target.closest('[data-mode]'); if (!b) return; longPressed = false; pressTimer = setTimeout(() => { longPressed = true; editMode(+b.dataset.mode); }, 550); };
+  const cancel = () => clearTimeout(pressTimer);
+  box.addEventListener('touchstart', start, { passive: true }); box.addEventListener('mousedown', start);
+  ['touchend', 'touchmove', 'mouseup', 'mouseleave'].forEach(n => box.addEventListener(n, cancel));
+  box.addEventListener('contextmenu', e => e.preventDefault());
+  box.addEventListener('click', ev => { const b = ev.target.closest('[data-mode]'); if (!b || longPressed) return; setBuiltin(+b.dataset.mode); });
+})();
+function editMode(m) {
+  const name = prompt('Name built-in effect #' + m + ' (leave empty to clear):', S.modeNames[m] || '');
+  if (name === null) return;
+  if (name.trim()) S.modeNames[m] = name.trim(); else delete S.modeNames[m];
+  const starred = S.modeStars.includes(m);
+  if (confirm(starred ? 'Unstar #' + m + '?' : 'Star #' + m + ' (pin to top)?')) {
+    S.modeStars = starred ? S.modeStars.filter(x => x !== m) : [...S.modeStars, m];
+  }
+  store('modeNames', S.modeNames); store('modeStars', S.modeStars);
+  renderModes();
+}
+
+function renderActive() {
+  document.querySelectorAll('[data-eff]').forEach(b => b.classList.toggle('active', !!S.current && S.current.kind === 'effect' && S.current.id === b.dataset.eff));
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('active', !!S.current && S.current.kind === 'builtin' && S.current.id === +b.dataset.mode));
+  document.getElementById('speedRow').style.opacity = S.current && S.current.kind === 'effect' ? 1 : 0.4;
+}
+
+function renderParams() {
+  const box = document.getElementById('params');
+  if (!S.current || S.current.kind !== 'effect') { box.innerHTML = ''; return; }
+  const e = byId[S.current.id], p = S.current.params;
+  let html = `<div class="label">${e.name} settings</div>`;
+  for (const [k, spec] of Object.entries(e.params)) {
+    if (spec.type === 'color') html += `<div class="slider"><label>${k === 'b' || k === 'base' ? (k === 'base' ? 'Base' : 'Colour 2') : k === 'a' ? 'Colour 1' : 'Colour'}</label><input type="color" data-k="${k}" value="${p[k]}"></div>`;
+    else if (spec.type === 'colors') {
+      html += `<div class="colors">` + p[k].map((c, i) => `<input type="color" data-k="${k}" data-i="${i}" value="${c}">`).join('') +
+        `<button class="small" data-add="${k}">＋</button>${p[k].length > 2 ? `<button class="small" data-del="${k}">－</button>` : ''}</div>`;
+    }
+    else html += `<div class="slider"><label>${spec.label}</label><input type="range" data-k="${k}" min="${spec.min}" max="${spec.max}" step="${spec.step}" value="${p[k]}"><span class="val">${fmt(p[k])}</span></div>`;
+  }
+  if (!Object.keys(e.params).length) html += '<div class="hint">No settings. Use Brightness and Speed above.</div>';
+  box.innerHTML = html;
+}
+const fmt = v => (Math.round(v * 100) / 100).toString();
+document.getElementById('params').addEventListener('input', ev => {
+  const el = ev.target, k = el.dataset.k; if (!k || !S.current) return;
+  const p = S.current.params;
+  if (el.dataset.i !== undefined) { p[k] = [...p[k]]; p[k][+el.dataset.i] = el.value; }
+  else if (el.type === 'color') p[k] = el.value;
+  else { p[k] = parseFloat(el.value); el.nextElementSibling.textContent = fmt(p[k]); }
+  S.params[S.current.id] = p; store('params', S.params);
+});
+document.getElementById('params').addEventListener('click', ev => {
+  const add = ev.target.dataset.add, del = ev.target.dataset.del; if (!add && !del) return;
+  const p = S.current.params, k = add || del;
+  p[k] = add ? [...p[k], '#' + hsv(Math.random() * 360).map(h2).join('')] : p[k].slice(0, -1);
+  S.params[S.current.id] = p; store('params', S.params); renderParams();
+});
+
+/* ---------------- master sliders ---------------- */
+function bindSlider(id, onChange, fmtFn) {
+  const el = document.getElementById(id), out = document.getElementById(id + 'Val');
+  const upd = () => { const v = parseFloat(el.value); if (out) out.textContent = fmtFn(v); onChange(v); };
+  el.addEventListener('input', upd);
+  return el;
+}
+bindSlider('bright', v => { S.bright = v / 100; store('bright', v); if (S.current && S.current.kind === 'solid') sendColor(hexToRgb(S.current.id)); }, v => v + '%');
+bindSlider('speed', v => { S.speed = v / 100; }, v => (v / 100).toFixed(1) + '×');
+bindSlider('fps', v => { S.fps = v; store('fps', v); if (timer) startEngine(); }, v => v + '/s');
+bindSlider('hwSpeed', v => sendCmd(CMD.speed(v)), v => v);
+bindSlider('lockMode', v => { S.lockMode = v; store('lockMode', v); }, v => v);
+document.getElementById('lockAction').addEventListener('change', e => { S.lockAction = e.target.value; store('lockAction', S.lockAction); document.getElementById('lockModeRow').style.display = S.lockAction === 'builtin' ? '' : 'none'; });
+(function initSettings() {
+  const b = load('bright', 100); document.getElementById('bright').value = b; S.bright = b / 100; document.getElementById('brightVal').textContent = b + '%';
+  document.getElementById('fps').value = S.fps; document.getElementById('fpsVal').textContent = S.fps + '/s';
+  document.getElementById('lockAction').value = S.lockAction;
+  document.getElementById('lockMode').value = S.lockMode; document.getElementById('lockModeVal').textContent = S.lockMode;
+  document.getElementById('lockModeRow').style.display = S.lockAction === 'builtin' ? '' : 'none';
+})();
+function openSettings() { document.getElementById('settings').classList.toggle('hidden'); }
+
+/* ---------------- tabs ---------------- */
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
+  document.querySelectorAll('main > section').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + b.dataset.tab));
+}));
+
+/* ---------------- favourites ---------------- */
+function saveFavourite() {
+  if (!S.current) { toast('Pick a colour or effect first'); return; }
+  const def = S.current.kind === 'effect' ? byId[S.current.id].name : S.current.kind === 'builtin' ? (S.modeNames[S.current.id] || 'Built-in #' + S.current.id) : 'Colour';
+  const name = prompt('Name this favourite:', def);
+  if (!name) return;
+  S.favs.push({ name, cur: JSON.parse(JSON.stringify(S.current)), bright: S.bright, speed: S.speed });
+  store('favs', S.favs); renderFavs(); toast('Saved ★');
+}
+function applyFav(i) {
+  const f = S.favs[i];
+  S.bright = f.bright; S.speed = f.speed;
+  document.getElementById('bright').value = Math.round(f.bright * 100); document.getElementById('brightVal').textContent = Math.round(f.bright * 100) + '%';
+  document.getElementById('speed').value = Math.round(f.speed * 100); document.getElementById('speedVal').textContent = f.speed.toFixed(1) + '×';
+  if (f.cur.kind === 'solid') setSolid(f.cur.id);
+  else if (f.cur.kind === 'builtin') setBuiltin(f.cur.id);
+  else runEffect(f.cur.id, f.cur.params);
+  document.querySelectorAll('.fav').forEach((b, j) => b.classList.toggle('active', j === i));
+}
+function renderFavs() {
+  document.getElementById('favs').innerHTML = S.favs.map((f, i) => `<button class="fav" data-fav="${i}">★ ${f.name.replace(/</g, '&lt;')}</button>`).join('');
+}
+document.getElementById('favs').addEventListener('click', ev => { const b = ev.target.closest('[data-fav]'); if (b) applyFav(+b.dataset.fav); });
+function clearFavourites() { if (confirm('Delete all favourites?')) { S.favs = []; store('favs', []); renderFavs(); } }
+
+/* ---------------- misc ---------------- */
+let toastT;
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2500); }
+
+renderModes(); renderFavs(); renderPower(); renderActive();
+if (!navigator.bluetooth) setConn('off', 'Open in Bluefy to connect');
+</script>
 </body>
 </html>
