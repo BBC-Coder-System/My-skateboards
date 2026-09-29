@@ -47,6 +47,17 @@ _Last updated 2026-09-30._
 
 ---
 
+### Music (built 2026-09-30, not yet tried on the strip)
+
+My music is mostly **YouTube Music**. The strip's own mic is ruled out (it's under the board and would hear wheel rumble), and pointing a speaker at the phone mic is impractical. iOS doesn't let any app (web or native) read another app's audio, so the Music tab has three sources:
+- **👆 Tempo** (default, for YouTube Music/Spotify): tap the beat 4+ times → BPM + phase lock. Synthesised kick/hat signal drives the effects. −/+ BPM, ½×/2×, nudge ±25 ms. The TAP button flashes on each beat to check the sync.
+- **🎵 Player**: plays audio files from the Files app through `<audio>` → Web Audio analyser → speaker. **Sync delay** slider (default 200 ms) holds the analysis back to match Bluetooth speaker latency. The song list isn't saved across reloads (browser file access).
+- **🎤 Mic**: the old phone-mic mode.
+- Beat detection = onset (sudden bass rise vs. its usual rise). The first version compared bass *level* to its average and **never fired on loud bass-heavy music**, which a real-time test caught.
+- New effect **Built-in on the beat**: runs a moving built-in effect (default 7-colour running #103) and pumps strip brightness (plus an optional speed kick) on each beat.
+
+**Native iPhone app?** Asked 2026-09-30. It would fix effects stopping when the phone locks and remove the need for Bluefy, but **not** YouTube Music audio. The only route is a ReplayKit screen-broadcast extension (Control Center, red indicator, some apps mute capture, unproven with YouTube Music). It needs a Mac + Xcode (I'm on Windows) or cloud builds, plus a $99/yr Apple developer account (free signing expires every 7 days). Decision: stay web for now.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

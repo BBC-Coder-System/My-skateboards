@@ -130,10 +130,59 @@
   <section id="tab-flash" class="hidden"><div class="card"><div class="label">Flash &amp; strobe</div><div class="tiles" data-group="flash"></div></div></section>
   <section id="tab-music" class="hidden">
     <div class="card">
-      <div class="label">Music reactive (phone microphone)</div>
-      <div class="tiles" data-group="music"></div>
+      <div class="label">Music source</div>
+      <div class="row" id="srcBtns" style="margin-top:0">
+        <button class="small" data-src="tempo">👆 Tempo</button>
+        <button class="small" data-src="player">🎵 Player</button>
+        <button class="small" data-src="mic">🎤 Mic</button>
+      </div>
+
+      <div id="src-tempo" class="hidden">
+        <div class="hint">For YouTube Music, Spotify and other apps (iPhone doesn't let any app read their sound). Tap the big button along with the beat, 4 or more times. The lights then keep that tempo on their own. If they drift, tap again or nudge.</div>
+        <button id="btnTap" class="primary" style="width:100%;padding:26px;font-size:20px;margin-top:6px">TAP THE BEAT</button>
+        <div class="row" style="align-items:center">
+          <button class="small" onclick="bpmAdj(-1)">−</button>
+          <div style="flex:2;text-align:center"><span id="bpmVal" style="font-size:30px;font-weight:800">120</span> <span class="hint">BPM</span></div>
+          <button class="small" onclick="bpmAdj(1)">＋</button>
+        </div>
+        <div class="row">
+          <button class="small" onclick="bpmMul(0.5)">½×</button>
+          <button class="small" onclick="nudge(-25)">◀ Earlier</button>
+          <button class="small" onclick="nudge(25)">Later ▶</button>
+          <button class="small" onclick="bpmMul(2)">2×</button>
+        </div>
+      </div>
+
+      <div id="src-player" class="hidden">
+        <div class="hint">Plays songs saved on your phone (Files app: MP3, M4A…) to your speaker and reacts to the real audio. No microphone involved.</div>
+        <input type="file" id="fileIn" accept="audio/*" multiple hidden>
+        <div class="row">
+          <button class="small" onclick="document.getElementById('fileIn').click()">＋ Add songs</button>
+          <button class="small" onclick="clearSongs()">Clear list</button>
+        </div>
+        <div id="songs" style="margin-top:8px"></div>
+        <div class="row">
+          <button onclick="prevSong()">⏮</button>
+          <button class="primary" id="btnPlay" onclick="togglePlay()">▶</button>
+          <button onclick="nextSong()">⏭</button>
+        </div>
+        <input type="range" id="seek" min="0" max="1000" value="0" style="width:100%;accent-color:var(--accent);margin-top:8px">
+        <div class="hint" id="songTime"></div>
+        <div class="slider"><label>Sync delay</label><input type="range" id="syncDelay" min="0" max="600" step="10" value="200"><span class="val" id="syncDelayVal">200ms</span></div>
+        <div class="hint">Bluetooth speakers play a little late. Lights hit <b>before</b> the beat → raise it. Lights hit <b>after</b> → lower it.</div>
+        <audio id="player" playsinline preload="auto"></audio>
+      </div>
+
+      <div id="src-mic" class="hidden">
+        <div class="hint">Uses the phone's microphone. Works with any music, but it hears everything around you, including the wheels.</div>
+      </div>
+
       <div id="meter"><div></div></div>
-      <div class="hint" id="micHint">Pick an effect to start listening.</div>
+      <div class="hint" id="micHint"></div>
+    </div>
+    <div class="card">
+      <div class="label">Music effects</div>
+      <div class="tiles" data-group="music"></div>
     </div>
   </section>
   <section id="tab-motion" class="hidden">
@@ -262,6 +311,7 @@ const S = {
   fxStars: load('fxStars', null) || load('modeStars', [28]).map(m => 128 + m).filter(n => n <= 233),
   fxCat: load('fxCat', 'Basic'),
   otherFx: load('otherFx', false),
+  audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
   favs: load('favs', []),
@@ -408,43 +458,174 @@ function fireLife(t, p, st, tint = [255, 90, 0]) {
 // phase every tick and the strip looks stuck on one colour. Divided by speed because t is sped up.
 const maxRate = frac => S.fps * frac / 2 / S.speed;
 
-/* ---------------- sensors: microphone ---------------- */
-const audio = { ctx: null, an: null, buf: null, level: 0, bass: 0, mid: 0, treble: 0, avg: 0.05, beat: false, beatCount: 0, lastBeat: 0 };
+/* ---------------- music: sources (tempo / player / mic) ---------------- */
+// Every source fills the same fields (level, bass, mid, treble 0..1, beatCount), so music effects
+// don't care where the music comes from. A 30 ms sampler does the listening; the effect engine reads
+// the result at its own (slower) rate, and `beat` is latched so no beat is missed between ticks.
+const audio = { ctx: null, micAn: null, playAn: null, buf: null, level: 0, bass: 0, mid: 0, treble: 0,
+  avg: 0.02, prevBass: null, beat: false, beatCount: 0, seen: 0, lastBeat: 0, hist: [], sampler: null };
+const tempo = { t0: performance.now(), taps: [], lastIdx: -1 };
+const playerEl = () => document.getElementById('player');
+function getCtx() {
+  if (!audio.ctx) audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+  return audio.ctx;
+}
+function makeAnalyser() { const an = getCtx().createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = 0.5; return an; }
 async function startMic() {
-  if (audio.an) { if (audio.ctx.state === 'suspended') audio.ctx.resume(); return true; }
+  if (audio.micAn) { getCtx(); return true; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    micHint('This browser won\'t give web pages the microphone. Try a Bluefy update or check its mic permission in iPhone Settings.', true);
+    micHint('This browser won\'t give web pages the microphone. Check Bluefy\'s mic permission in iPhone Settings.', true);
     return false;
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = audio.ctx.createMediaStreamSource(stream);
-    audio.an = audio.ctx.createAnalyser();
-    audio.an.fftSize = 1024; audio.an.smoothingTimeConstant = 0.5;
-    src.connect(audio.an);
-    if (audio.ctx.state === 'suspended') await audio.ctx.resume();
-    audio.buf = new Uint8Array(audio.an.frequencyBinCount);
+    audio.micAn = makeAnalyser();
+    getCtx().createMediaStreamSource(stream).connect(audio.micAn);
     micHint('Listening 🎤');
     return true;
   } catch (e) { micHint('Microphone blocked: ' + e.message + '. Allow mic for Bluefy in iPhone Settings.', true); return false; }
 }
-function readAudio() {
-  if (!audio.an) return;
-  audio.an.getByteFrequencyData(audio.buf);
-  const bins = audio.buf.length, hz = audio.ctx.sampleRate / 2 / bins;
-  const band = (lo, hi) => { let s = 0, n = 0; for (let i = Math.floor(lo / hz); i < Math.min(bins, hi / hz); i++) { s += audio.buf[i]; n++; } return n ? s / n / 255 : 0; };
-  audio.bass = band(30, 180); audio.mid = band(180, 2000); audio.treble = band(2000, 8000);
-  const lvl = audio.bass * 0.6 + audio.mid * 0.3 + audio.treble * 0.1;
-  audio.level = lvl;
-  // Simple beat detector: bass energy jumps well above its running average
-  audio.avg = audio.avg * 0.95 + audio.bass * 0.05;
+function ensurePlayerGraph() {
+  if (audio.playAn) { getCtx(); return; }
+  // Route the player through an analyser and on to the speaker (without .connect(destination) it'd be silent).
+  audio.playAn = makeAnalyser();
+  getCtx().createMediaElementSource(playerEl()).connect(audio.playAn);
+  audio.playAn.connect(audio.ctx.destination);
+}
+function startSampler() { if (!audio.sampler) audio.sampler = setInterval(sampleAudio, 30); }
+function sampleAudio() {
   const now = performance.now();
-  audio.beat = audio.bass > audio.avg * 1.35 + 0.04 && now - audio.lastBeat > 180;
-  if (audio.beat) { audio.lastBeat = now; audio.beatCount++; }
-  document.querySelector('#meter > div').style.width = Math.min(100, lvl * 160) + '%';
+  if (S.audioSrc === 'tempo') return sampleTempo(now);
+  const an = S.audioSrc === 'mic' ? audio.micAn : audio.playAn;
+  if (!an || (S.audioSrc === 'player' && playerEl().paused)) { applyFrame({ bass: audio.bass * 0.8, mid: audio.mid * 0.8, treble: audio.treble * 0.8 }, now, false); return; }
+  if (!audio.buf || audio.buf.length !== an.frequencyBinCount) audio.buf = new Uint8Array(an.frequencyBinCount);
+  an.getByteFrequencyData(audio.buf);
+  const bins = audio.buf.length, hz = audio.ctx.sampleRate / 2 / bins;
+  const band = (lo, hi) => { let t = 0, n = 0; for (let i = Math.floor(lo / hz); i < Math.min(bins, hi / hz); i++) { t += audio.buf[i]; n++; } return n ? t / n / 255 : 0; };
+  // The speaker plays late, so the player's analysis is held back by the sync delay before it drives the lights.
+  const delay = S.audioSrc === 'player' ? S.syncDelay : 0;
+  audio.hist.push({ t: now, bass: band(30, 180), mid: band(180, 2000), treble: band(2000, 8000) });
+  while (audio.hist.length > 1 && audio.hist[1].t <= now - delay) audio.hist.shift();
+  if (audio.hist.length > 60) audio.hist.splice(0, audio.hist.length - 60);
+  if (audio.hist[0].t <= now - delay) applyFrame(audio.hist[0], now, true);
+}
+function applyFrame(f, now, detect) {
+  audio.bass = f.bass; audio.mid = f.mid; audio.treble = f.treble;
+  audio.level = f.bass * 0.6 + f.mid * 0.3 + f.treble * 0.1;
+  // Beat = a sudden rise in bass (onset), compared with how much it usually rises. Comparing the bass
+  // *level* to its average fails with loud bass-heavy music: the average saturates and nothing triggers.
+  const rise = Math.max(0, f.bass - (audio.prevBass ?? f.bass));
+  audio.prevBass = f.bass;
+  audio.avg = audio.avg * 0.9 + rise * 0.1;
+  if (detect && rise > audio.avg * 2 + 0.04 && f.bass > 0.15 && now - audio.lastBeat > 200) { audio.lastBeat = now; audio.beatCount++; flashBeat(); }
+  document.querySelector('#meter > div').style.width = Math.min(100, audio.level * 160) + '%';
+}
+function sampleTempo(now) {
+  // Synthesised music: a kick on every beat (stronger on the first of each 4), hats on the off-beats.
+  const period = 60000 / S.bpm, x = (now - tempo.t0) / period, idx = Math.floor(x), frac = x - idx;
+  if (idx !== tempo.lastIdx) { tempo.lastIdx = idx; audio.beatCount++; audio.lastBeat = now; flashBeat(); }
+  const accent = ((idx % 4) + 4) % 4 === 0 ? 1 : 0.75;
+  applyFrame({ bass: accent * Math.exp(-frac * 6), mid: 0.15 + 0.45 * accent * Math.exp(-frac * 3), treble: 0.35 * Math.exp(-((frac * 2) % 1) * 6) }, now, false);
+}
+function updateAudio() { audio.beat = audio.beatCount !== audio.seen; audio.seen = audio.beatCount; } // once per engine tick
+let beatFlashT;
+function flashBeat() {
+  const b = document.getElementById('btnTap'); if (!b) return;
+  b.style.boxShadow = '0 0 0 4px #fff inset'; clearTimeout(beatFlashT); beatFlashT = setTimeout(() => { b.style.boxShadow = ''; }, 90);
 }
 function micHint(t, bad) { const el = document.getElementById('micHint'); el.textContent = t; el.className = 'hint' + (bad ? ' warn' : ''); }
+async function ensureAudio() {
+  startSampler();
+  if (S.audioSrc === 'mic') return startMic();
+  if (S.audioSrc === 'player' && !songs.length) micHint('Add songs and press ▶ to start the music.');
+  if (S.audioSrc === 'tempo' && tempo.taps.length < 2) micHint('Tap the beat on the TAP button, 4 or more times.');
+  return true;
+}
+
+// ---- source picker ----
+function selectSource(src, init) {
+  S.audioSrc = src; store('audioSrc', src);
+  ['tempo', 'player', 'mic'].forEach(k => document.getElementById('src-' + k).classList.toggle('hidden', k !== src));
+  document.querySelectorAll('#srcBtns [data-src]').forEach(b => b.classList.toggle('primary', b.dataset.src === src));
+  micHint('');
+  startSampler();
+  if (src === 'mic' && !init) startMic(); // the mic prompt should come from a tap, not page load
+}
+document.getElementById('srcBtns').addEventListener('click', ev => { const b = ev.target.closest('[data-src]'); if (b) selectSource(b.dataset.src); });
+
+// ---- tempo ----
+function setBpm(v) {
+  // Keep the beat phase continuous when the tempo changes.
+  const now = performance.now(), oldP = 60000 / S.bpm, phase = (now - tempo.t0) / oldP;
+  S.bpm = Math.max(40, Math.min(240, Math.round(v * 10) / 10)); store('bpm', S.bpm);
+  tempo.t0 = now - phase * (60000 / S.bpm);
+  tempo.lastIdx = Math.floor((now - tempo.t0) / (60000 / S.bpm));
+  document.getElementById('bpmVal').textContent = S.bpm;
+}
+function onTap() {
+  const now = performance.now(), taps = tempo.taps;
+  if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
+  taps.push(now); if (taps.length > 8) taps.shift();
+  if (taps.length >= 2) {
+    const gaps = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
+    S.bpm = Math.max(40, Math.min(240, Math.round(600000 / gaps[Math.floor(gaps.length / 2)]) / 10)); store('bpm', S.bpm);
+    document.getElementById('bpmVal').textContent = S.bpm;
+  }
+  tempo.t0 = now; tempo.lastIdx = -1; // this tap is a beat
+  if (S.audioSrc !== 'tempo') selectSource('tempo');
+  micHint(taps.length < 4 ? 'Keep tapping… (' + taps.length + ')' : 'Locked to ' + S.bpm + ' BPM. Tap again any time to re-sync.');
+}
+document.getElementById('btnTap').addEventListener('pointerdown', ev => { ev.preventDefault(); onTap(); });
+function bpmAdj(d) { setBpm(S.bpm + d); }
+function bpmMul(m) { setBpm(S.bpm * m); }
+function nudge(ms) { tempo.t0 += ms; toast(ms < 0 ? 'Beat 25 ms earlier' : 'Beat 25 ms later'); }
+
+// ---- player ----
+const songs = []; let songIdx = -1;
+document.getElementById('fileIn').addEventListener('change', ev => {
+  for (const f of ev.target.files) songs.push({ name: f.name.replace(/\.[^.]+$/, ''), url: URL.createObjectURL(f) });
+  ev.target.value = '';
+  renderSongs();
+  if (S.audioSrc !== 'player') selectSource('player');
+});
+function renderSongs() {
+  document.getElementById('songs').innerHTML = songs.length
+    ? songs.map((x, i) => `<button class="small" data-song="${i}" style="display:block;width:100%;text-align:left;margin-bottom:6px${i === songIdx ? ';color:var(--accent);border:1px solid var(--accent)' : ''}">${i === songIdx ? '♪ ' : ''}${x.name.replace(/</g, '&lt;')}</button>`).join('')
+    : '<div class="hint">No songs yet. Songs stay in the list until the page is reloaded.</div>';
+}
+document.getElementById('songs').addEventListener('click', ev => { const b = ev.target.closest('[data-song]'); if (b) playSong(+b.dataset.song); });
+function playSong(i) {
+  if (!songs.length) { toast('Add songs first'); return; }
+  songIdx = (i + songs.length) % songs.length;
+  const el = playerEl();
+  el.src = songs[songIdx].url;
+  ensurePlayerGraph(); startSampler();
+  if (S.audioSrc !== 'player') selectSource('player');
+  el.play().catch(e => micHint('Could not play: ' + e.message, true));
+  renderSongs();
+}
+function togglePlay() {
+  const el = playerEl();
+  if (songIdx < 0) return playSong(0);
+  ensurePlayerGraph();
+  if (el.paused) el.play().catch(e => micHint('Could not play: ' + e.message, true)); else el.pause();
+}
+function nextSong() { playSong(songIdx + 1); }
+function prevSong() { const el = playerEl(); if (el.currentTime > 3) el.currentTime = 0; else playSong(songIdx - 1); }
+function clearSongs() { playerEl().pause(); songs.forEach(x => URL.revokeObjectURL(x.url)); songs.length = 0; songIdx = -1; renderSongs(); }
+(function wirePlayer() {
+  const el = playerEl(), seek = document.getElementById('seek');
+  const fmtT = t => isFinite(t) ? Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0') : '0:00';
+  el.addEventListener('ended', nextSong);
+  el.addEventListener('play', () => { document.getElementById('btnPlay').textContent = '⏸'; });
+  el.addEventListener('pause', () => { document.getElementById('btnPlay').textContent = '▶'; });
+  el.addEventListener('timeupdate', () => {
+    if (el.duration) seek.value = Math.round(1000 * el.currentTime / el.duration);
+    document.getElementById('songTime').textContent = songIdx >= 0 ? songs[songIdx].name + ' · ' + fmtT(el.currentTime) + ' / ' + fmtT(el.duration) : '';
+  });
+  seek.addEventListener('input', () => { if (el.duration) el.currentTime = el.duration * seek.value / 1000; });
+})();
 
 /* ---------------- sensors: motion ---------------- */
 const motion = { on: false, jolt: 0, energy: 0, tiltHue: 0, lastJolt: 0 };
@@ -568,16 +749,39 @@ const EFFECTS = [
     fn: (t, p, st) => { const r = Math.min(p.rate, maxRate(0.5)); const n = Math.floor(t * r); if (n !== st.n) { st.n = n; st.h = Math.random() * 360; } return ((t * r) % 1) < 0.5 ? hsv(st.h) : BLACK; } },
 
   // ---- Music ----
-  { id: 'mpulse', group: 'music', name: 'Volume pulse', desc: 'Brightness follows the music', needs: 'mic',
+  { id: 'mpulse', group: 'music', name: 'Volume pulse', desc: 'Brightness follows the music', needs: 'audio',
     params: { color: { type: 'color', v: '#a855f7' }, gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2 } },
     fn: (t, p) => scale(hexToRgb(p.color), Math.min(1, audio.level * p.gain) ** 1.5) },
-  { id: 'mbeat', group: 'music', name: 'Beat hop', desc: 'New colour on every beat', needs: 'mic',
+  { id: 'mbeat', group: 'music', name: 'Beat hop', desc: 'New colour on every beat', needs: 'audio',
     params: { gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2 }, step: { label: 'Hue jump', min: 10, max: 180, step: 5, v: 60 } },
     fn: (t, p, st) => { st.k = audio.beat ? 1 : (st.k || 0) * 0.85; return hsv(audio.beatCount * p.step, 1, Math.max(0.15, Math.min(1, st.k + audio.level * p.gain * 0.5))); } },
-  { id: 'mspec', group: 'music', name: 'Spectrum', desc: 'Bass=red, mids=green, highs=blue', needs: 'mic',
+  { id: 'mspec', group: 'music', name: 'Spectrum', desc: 'Bass=red, mids=green, highs=blue', needs: 'audio',
     params: { gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2.5 } },
     fn: (t, p) => [audio.bass, audio.mid, audio.treble].map(x => 255 * Math.min(1, x * p.gain) ** 1.6) },
-  { id: 'mflash', group: 'music', name: 'Beat strobe', desc: 'White flash on the beat', needs: 'mic',
+  // A built-in moving effect (keeps its motion along the strip) that pumps brightness, and optionally speed, with the beat.
+  { id: 'mbuiltin', group: 'music', name: 'Built-in on the beat', desc: 'A moving strip effect that pumps with the beat', needs: 'audio',
+    params: {
+      fx: { type: 'select', label: 'Effect', v: 103, restart: true,
+        options: [[103, '7-colour running'], [83, '7-colour wave'], [85, 'R-G-B wave'], [23, '7-colour tail'], [39, '7-colour water'], [1, 'Magic forward'], [205, 'Red marquee']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 50 },
+      low: { label: 'Between beats', min: 0.05, max: 0.9, step: 0.05, v: 0.3 },
+      kick: { label: 'Speed kick', min: 0, max: 1, step: 0.05, v: 0.3 },
+    },
+    start: (p, st) => { st.flow = fireFlow(p); st.k = 0; sendCmd(CMD.mode(p.fx)); sendCmd(CMD.speed(st.flow)); },
+    drive: (t, p, st) => {
+      const flow = fireFlow(p);
+      if (st.flow !== flow) { st.flow = flow; sendCmd(CMD.speed(flow)); }
+      if (audio.beat) {
+        st.k = 1;
+        if (p.kick > 0) { sendCmd(CMD.speed(Math.min(100, Math.round(flow * (1 + p.kick))))); st.kicked = true; }
+      } else st.k *= 0.75;
+      if (st.kicked && st.k < 0.3) { sendCmd(CMD.speed(flow)); st.kicked = false; }
+      const lvl = p.low + (1 - p.low) * Math.max(st.k, Math.min(1, audio.level * 1.2));
+      const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * lvl)));
+      if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
+      document.getElementById('preview').style.background = `linear-gradient(90deg,${[0, 60, 120, 180, 240, 300].map(h => `hsl(${h + t * 40},100%,${Math.round(10 + 45 * lvl)}%)`).join(',')})`;
+    } },
+  { id: 'mflash', group: 'music', name: 'Beat strobe', desc: 'White flash on the beat', needs: 'audio',
     params: { color: { type: 'color', v: '#ffffff' }, base: { type: 'color', v: '#1e1b4b' } },
     fn: (t, p, st) => { st.k = audio.beat ? 1 : (st.k || 0) * 0.6; return mix(hexToRgb(p.base), hexToRgb(p.color), st.k); } },
 
@@ -618,7 +822,7 @@ function tick() {
   lastTick = now;
   if (!S.power || !S.current || S.current.kind !== 'effect') return;
   const e = byId[S.current.id];
-  if (e.needs === 'mic') readAudio();
+  if (e.needs === 'audio') updateAudio();
   try {
     if (e.drive) e.drive(tVirtual, S.current.params, scratch);
     else sendColor(e.fn(tVirtual, S.current.params, scratch));
@@ -627,7 +831,7 @@ function tick() {
 
 async function runEffect(id, params) {
   const e = byId[id];
-  if (e.needs === 'mic' && !(await startMic())) return;
+  if (e.needs === 'audio' && !(await ensureAudio())) return;
   if (e.needs === 'motion' && !(await startMotion())) return;
   scratch = {};
   leaveBuiltin();
@@ -875,6 +1079,7 @@ bindSlider('bright', v => {
 }, v => v + '%');
 bindSlider('speed', v => { S.speed = v / 100; }, v => (v / 100).toFixed(1) + '×');
 bindSlider('fps', v => { S.fps = v; store('fps', v); if (timer) startEngine(); }, v => v + '/s');
+bindSlider('syncDelay', v => { S.syncDelay = v; store('syncDelay', v); }, v => v + 'ms');
 bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); pendingColor = CMD.speed(v); pump(); }, v => v);
 function renderLockOptions() {
   document.getElementById('lockMode').innerHTML = fxCats().map(c => `<optgroup label="${c.cat}">` + c.fx.map(([n, name]) => `<option value="${n}">${name}</option>`).join('') + '</optgroup>').join('');
@@ -930,7 +1135,9 @@ function clearFavourites() { if (confirm('Delete all favourites?')) { S.favs = [
 let toastT;
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2500); }
 
-renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow();
+renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
+selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;
+document.getElementById('syncDelay').value = S.syncDelay; document.getElementById('syncDelayVal').textContent = S.syncDelay + 'ms';
 if (S.pixels) pixelsEl().value = S.pixels;
 if (!navigator.bluetooth) setConn('off', 'Open in Bluefy to connect');
 </script>
