@@ -236,7 +236,8 @@ async function connect() {
   if (!navigator.bluetooth) { toast('No Bluetooth here. Open this page in Bluefy.'); return; }
   try {
     setConn('busy', 'Choose your strip…');
-    device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'MELK' }, { namePrefix: 'ELK' }, { services: [SERVICE] }], optionalServices: [SERVICE] });
+    // Show every device: name filters hid the strip in Bluefy. acceptAllDevices is what probe.html used successfully.
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE] });
     device.addEventListener('gattserverdisconnected', onDisconnected);
     userDisconnect = false;
     await openGatt();
