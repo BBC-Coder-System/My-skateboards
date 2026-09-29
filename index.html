@@ -92,7 +92,7 @@
 
   <div class="card">
     <div id="preview"></div>
-    <div class="slider"><label>Brightness</label><input type="range" id="bright" min="3" max="100" value="100"><span class="val" id="brightVal">100%</span></div>
+    <div class="slider"><label>Brightness</label><input type="range" id="bright" min="8" max="100" value="100"><span class="val" id="brightVal">100%</span></div>
     <div class="slider" id="speedRow"><label>Speed</label><input type="range" id="speed" min="10" max="400" value="100"><span class="val" id="speedVal">1.0×</span></div>
   </div>
 
@@ -212,20 +212,28 @@ const cmdQueue = [];     // commands (power/mode) always go out, in order
 let pendingColor = null; // only the newest colour matters
 let inflight = false, lastColorHex = '';
 
+// The controller only digests ~17-20 packets/s. Writes-without-response resolve instantly on the
+// phone, so without pacing, slider drags pile up in the BLE stack and the strip lags behind.
+// Pace every write to the update rate; pendingColor always holds only the newest colour.
+let lastWriteAt = 0, pumpTimer = null;
 function pump() {
-  if (inflight || !chr) return;
+  if (inflight || !chr || pumpTimer) return;
+  if (!cmdQueue.length && !pendingColor) return;
+  const wait = lastWriteAt + 1000 / S.fps - performance.now();
+  if (wait > 0) { pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, wait); return; }
   let hex;
   if (cmdQueue.length) { hex = cmdQueue.shift(); lastColorHex = ''; }
   else if (pendingColor) { hex = pendingColor; pendingColor = null; if (hex === lastColorHex) return; lastColorHex = hex; }
   else return;
   inflight = true;
+  lastWriteAt = performance.now();
   const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
   const p = chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
   p.catch(e => console.warn('write', e)).finally(() => { inflight = false; pump(); });
 }
 function sendCmd(hex) { cmdQueue.push(hex); pump(); }
 function sendColor(rgb) {
-  const b = S.bright;
+  const b = S.bright * S.bright; // perceptual curve: slider halfway looks about half as bright
   const out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
   document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
   pendingColor = CMD.color(...out);
