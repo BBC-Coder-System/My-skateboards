@@ -3,368 +3,117 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Skateboard Ultimate LED Controller</title>
+    <title>BLE Protocol Sniffer / Crack Tool</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0b0c10; color: #fff; padding: 15px; max-width: 500px; margin: 0 auto; text-align: center; }
-        h1 { font-size: 20px; color: #00f0ff; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
-        .card { background: #1f2833; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #2f3e46; }
-        button { padding: 12px 18px; font-size: 15px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-connect { background: #45a29e; color: #0b0c10; width: 100%; box-shadow: 0 4px 10px rgba(69,162,158,0.3); font-size: 16px; }
-        .btn-on { background: #2ecc71; color: white; width: 48%; }
-        .btn-off { background: #e74c3c; color: white; width: 48%; }
-        .btn-feature { background: #9b59b6; color: white; width: 100%; margin-top: 8px; }
-        .btn-feature.active { background: #e67e22; }
-        .power-grid { display: flex; justify-content: space-between; margin-top: 10px; }
-        label { display: block; text-align: left; font-size: 12px; color: #c5c6c7; margin: 10px 0 4px 0; font-weight: 600; text-transform: uppercase; }
-        input[type="range"] { width: 100%; height: 8px; border-radius: 4px; background: #0b0c10; outline: none; }
-        input[type="color"] { width: 100%; height: 45px; border: none; border-radius: 8px; background: none; cursor: pointer; }
-        select, input[type="text"] { width: 100%; padding: 10px; background: #0b0c10; color: #fff; border: 1px solid #45a29e; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
-        .edit-group { display: flex; gap: 8px; margin-top: 8px; }
-        #status { font-size: 12px; color: #66fcf1; margin-top: 6px; font-weight: 600; }
-        .sensor-data { font-size: 11px; color: #f39c12; margin-top: 4px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #121212; color: #fff; padding: 15px; max-width: 500px; margin: 0 auto; text-align: center; }
+        h1 { font-size: 18px; color: #00f0ff; }
+        .card { background: #1e1e1e; border-radius: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid #333; }
+        button { padding: 10px 14px; font-size: 13px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin: 4px; }
+        .btn-main { background: #00f0ff; color: #000; width: 100%; font-size: 15px; }
+        .btn-hex { background: #2d3748; color: #63b3ed; border: 1px solid #4a5568; }
+        .btn-send { background: #48bb78; color: #fff; width: 100%; margin-top: 8px; font-size: 15px; }
+        input[type="text"] { width: 100%; padding: 10px; background: #000; color: #00ffcc; border: 1px solid #00f0ff; border-radius: 6px; font-size: 16px; box-sizing: border-box; text-align: center; font-family: monospace; }
+        #log { background: #000; color: #00ff00; font-family: monospace; font-size: 11px; text-align: left; padding: 8px; border-radius: 6px; height: 120px; overflow-y: auto; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h1>🛹 Skateboard Pro Ultimate</h1>
-    <div id="status">Status: Disconnected</div>
+    <h1>🔍 BLE Protocol Crack Tool</h1>
+    <div id="status" style="color: #ecc94b; font-size: 13px; margin-bottom: 8px;">Status: Disconnected</div>
 
-    <!-- Power & Connection -->
-    <div class="card" style="margin-top: 10px;">
-        <button class="btn-connect" onclick="connectBLE()">Connect to Skateboard</button>
-        <div class="power-grid">
-            <button class="btn-on" onclick="powerOn()">Power ON</button>
-            <button class="btn-off" onclick="powerOff()">Power OFF</button>
-        </div>
-    </div>
-
-    <!-- Color & Dimming / Brightness -->
     <div class="card">
-        <label>Custom Color Picker</label>
-        <input type="color" id="colorPicker" value="#00f0ff" oninput="throttledUpdateColor()">
-
-        <label>Dimming / Brightness Control</label>
-        <input type="range" id="brightness" min="1" max="255" value="255" oninput="throttledApplyBrightness()">
+        <button class="btn-main" onclick="connectBLE()">Connect BLE Controller</button>
     </div>
 
-    <!-- Hardware Effect Library & Custom Renamer -->
+    <!-- Manual Hex Sender -->
     <div class="card">
-        <label>Hardware Effect Selector</label>
-        <select id="modeSelect" onchange="applyMode()">
-            <!-- Dynamic list generated from JavaScript -->
-        </select>
-
-        <div class="edit-group">
-            <input type="text" id="renameInput" placeholder="New name for selected effect">
-            <button style="background:#3498db; color:white; width: 30%;" onclick="saveCustomName()">Rename</button>
-        </div>
-
-        <label>Effect Speed Control</label>
-        <input type="range" id="speed" min="1" max="255" value="128" oninput="throttledApplySpeed()">
+        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 4px;">RAW HEX PAYLOAD TO SEND</label>
+        <input type="text" id="rawHex" value="7e070503ff0000ff00ef">
+        <button class="btn-send" onclick="sendCustomHex()">🚀 Send Custom Hex Packet</button>
     </div>
 
-    <!-- Interactive Features: Music Sync & Accelerometer -->
+    <!-- Test Suite 1: Headers & Format Variations for Pure Solid RED -->
     <div class="card">
-        <label>Interactive Smart Modes</label>
-        <button id="micBtn" class="btn-feature" onclick="toggleMicSync()">🎵 Phone Mic Beat Sync</button>
-        <button id="motionBtn" class="btn-feature" onclick="toggleMotionSync()">🏎️ Ride Speed / Accelerometer Mode</button>
-        <div id="sensorDisplay" class="sensor-data"></div>
+        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">TEST SUITE 1: Solid RED Variations</label>
+        <button class="btn-hex" onclick="setAndSend('7e070503ff0000ff00ef')">7e070503... (Standard 9B)</button>
+        <button class="btn-hex" onclick="setAndSend('7e000503ff00000000ef')">7e000503... (Zero-Header)</button>
+        <button class="btn-hex" onclick="setAndSend('7e0403fff000000000ef')">7e0403ff... (Variant B)</button>
+        <button class="btn-hex" onclick="setAndSend('7e0001ff0000000000ef')">7e0001ff... (Opcode 01)</button>
+        <button class="btn-hex" onclick="setAndSend('a5000503ff000000005a')">a5...5a (Alternative Frame)</button>
     </div>
+
+    <!-- Test Suite 2: Mode Override / Reset Commands -->
+    <div class="card">
+        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">TEST SUITE 2: Force Break Hardware Lockout</label>
+        <button class="btn-hex" onclick="setAndSend('7e00040000000000ef')">Reset Mode (7e000400...)</button>
+        <button class="btn-hex" onclick="setAndSend('7e0503000000000000ef')">Set Mode 0x00 (Static)</button>
+        <button class="btn-hex" onclick="setAndSend('7e0004f00001ff00ef')">Power Cycle Frame</button>
+    </div>
+
+    <div id="log">--- Execution Log ---<br></div>
 
     <script>
         let bleDevice, bleCharacteristic;
-        let isSending = false;
-        let pendingHex = null;
-        let isMicActive = false, isMotionActive = false;
-        let currentModeType = "color"; // "color" or "effect"
-        let audioCtx, analyser, micStream;
 
-        const defaultModes = {
-            "80": "Red Breathing / Pulse",
-            "81": "Green Breathing / Pulse",
-            "82": "Blue Breathing / Pulse",
-            "83": "Yellow Breathing / Pulse",
-            "84": "Cyan Breathing / Pulse",
-            "85": "Purple Breathing / Pulse",
-            "86": "White Breathing / Pulse",
-            "87": "7 Color Cross-Fade",
-            "88": "7 Color Strobe",
-            "89": "7 Color Fast Jump",
-            "8a": "3 Color Jump (RGB)",
-            "8b": "Single Color Strobe Flash",
-            "8c": "Red Flash Jump",
-            "8d": "Green Flash Jump",
-            "8e": "Blue Flash Jump",
-            "8f": "Yellow Flash Jump",
-            "90": "Cyan Flash Jump",
-            "91": "Purple Flash Jump",
-            "92": "White Flash Jump",
-            "93": "7 Color Auto Cycle",
-            "94": "3 Color Gradual Change",
-            "95": "7 Color Gradual Change",
-            "96": "Red Strobe",
-            "97": "Green Strobe",
-            "98": "Blue Strobe",
-            "99": "Yellow Strobe",
-            "9a": "Cyan Strobe",
-            "9b": "White Strobe"
-        };
-
-        let customModes = JSON.parse(localStorage.getItem('board_effect_names')) || defaultModes;
-
-        function populateModeDropdown() {
-            const select = document.getElementById('modeSelect');
-            select.innerHTML = '';
-            for (let hex in customModes) {
-                let opt = document.createElement('option');
-                opt.value = hex;
-                opt.innerText = `[0x${hex}] ${customModes[hex]}`;
-                select.appendChild(opt);
-            }
-        }
-        populateModeDropdown();
-
-        function saveCustomName() {
-            const select = document.getElementById('modeSelect');
-            const hex = select.value;
-            const newName = document.getElementById('renameInput').value.trim();
-            if (newName) {
-                customModes[hex] = newName;
-                localStorage.setItem('board_effect_names', JSON.stringify(customModes));
-                populateModeDropdown();
-                select.value = hex;
-                document.getElementById('renameInput').value = '';
-                alert(`Effect 0x${hex} renamed to: "${newName}"`);
-            }
+        function log(msg) {
+            const l = document.getElementById('log');
+            l.innerHTML += msg + "<br>";
+            l.scrollTop = l.scrollHeight;
         }
 
         async function connectBLE() {
-            const statusDiv = document.getElementById('status');
             try {
-                statusDiv.innerText = "Searching for skateboard...";
+                log("Searching...");
                 bleDevice = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
                 });
 
-                statusDiv.innerText = "Connecting GATT...";
                 const server = await bleDevice.gatt.connect();
-
-                statusDiv.innerText = "Accessing Lights...";
                 const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
-                bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
-
-                statusDiv.innerText = "CONNECTED: " + (bleDevice.name || "Skateboard LED");
-                statusDiv.style.color = "#2ecc71";
-            } catch (error) {
-                statusDiv.innerText = "Error: " + (error.message || "Failed to connect");
-                statusDiv.style.color = "#e74c3c";
-            }
-        }
-
-        async function sendHex(hexString) {
-            if (!bleCharacteristic) return;
-            pendingHex = hexString;
-            if (isSending) return;
-            isSending = true;
-
-            while (pendingHex !== null) {
-                const currentHex = pendingHex;
-                pendingHex = null;
-
-                try {
-                    const bytes = new Uint8Array(currentHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                    if (bleCharacteristic.properties.writeWithoutResponse) {
-                        await bleCharacteristic.writeValueWithoutResponse(bytes);
-                    } else {
-                        await bleCharacteristic.writeValue(bytes);
-                    }
-                } catch (e) {
-                    console.error("BLE Send Error:", e);
+                
+                // Get all characteristics to inspect properties
+                const characteristics = await service.getCharacteristics();
+                log(`Found ${characteristics.length} characteristics.`);
+                
+                for (let c of characteristics) {
+                    log(`Char: ${c.uuid} | Props: W=${c.properties.write}, WNoResp=${c.properties.writeWithoutResponse}`);
                 }
 
-                await new Promise(resolve => setTimeout(resolve, 30));
-            }
-
-            isSending = false;
-        }
-
-        function powerOn() {
-            sendHex("7e0004f00001ff00ef");
-            setTimeout(updateColor, 100);
-        }
-
-        function powerOff() {
-            sendHex("7e0004000000ff00ef");
-        }
-
-        function throttledUpdateColor() {
-            stopInteractiveModes();
-            currentModeType = "color";
-            updateColor();
-        }
-
-        function updateColor() {
-            const hex = document.getElementById('colorPicker').value;
-            let r = parseInt(hex.substr(1, 2), 16);
-            let g = parseInt(hex.substr(3, 2), 16);
-            let b = parseInt(hex.substr(5, 2), 16);
-            const brightness = parseInt(document.getElementById('brightness').value) / 255;
-
-            // Scale static color by dimming slider
-            r = Math.round(r * brightness);
-            g = Math.round(g * brightness);
-            b = Math.round(b * brightness);
-
-            setColor(r, g, b);
-        }
-
-        function setColor(r, g, b) {
-            const hexR = Math.min(255, Math.max(0, r)).toString(16).padStart(2, '0');
-            const hexG = Math.min(255, Math.max(0, g)).toString(16).padStart(2, '0');
-            const hexB = Math.min(255, Math.max(0, b)).toString(16).padStart(2, '0');
-            
-            sendHex(`7e070503${hexR}${hexG}${hexB}ff00ef`);
-        }
-
-        function applyMode() {
-            stopInteractiveModes();
-            currentModeType = "effect";
-            const modeHex = document.getElementById('modeSelect').value;
-            const speed = parseInt(document.getElementById('speed').value);
-            const hexSpeed = speed.toString(16).padStart(2, '0');
-
-            // Native Mode Trigger
-            sendHex(`7e0503${modeHex}${hexSpeed}000000ef`);
-            
-            // Sync Brightness without changing direction
-            setTimeout(throttledApplyBrightness, 50);
-        }
-
-        function throttledApplyBrightness() {
-            const brightness = parseInt(document.getElementById('brightness').value);
-            const hexBright = brightness.toString(16).padStart(2, '0');
-
-            if (currentModeType === "effect") {
-                // Dedicated Hardware Mode Dimming Byte (Does NOT break direction or reset animation!)
-                sendHex(`7e0401${hexBright}00000000ef`);
-            } else {
-                updateColor();
+                // Default target characteristic
+                bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
+                document.getElementById('status').innerText = "Connected to: " + bleDevice.name;
+                document.getElementById('status').style.color = "#48bb78";
+                log("Connected successfully!");
+            } catch (e) {
+                log("Err: " + e.message);
             }
         }
 
-        function throttledApplySpeed() {
-            const speed = parseInt(document.getElementById('speed').value);
-            const hexSpeed = speed.toString(16).padStart(2, '0');
-            // Hardware Speed Byte
-            sendHex(`7e0402${hexSpeed}00000000ef`);
+        function setAndSend(hex) {
+            document.getElementById('rawHex').value = hex;
+            sendCustomHex();
         }
 
-        // --- PHONE MIC MUSIC SYNC ---
-        async function toggleMicSync() {
-            const btn = document.getElementById('micBtn');
-            if (isMicActive) {
-                stopInteractiveModes();
+        async function sendCustomHex() {
+            if (!bleCharacteristic) {
+                log("Error: Connect BLE first.");
                 return;
             }
-            stopInteractiveModes();
+            const hex = document.getElementById('rawHex').value.trim();
+            log("Sending: " + hex);
 
             try {
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioCtx.createAnalyser();
-                const source = audioCtx.createMediaStreamSource(micStream);
-                source.connect(analyser);
-                analyser.fftSize = 64;
-
-                isMicActive = true;
-                btn.classList.add('active');
-                btn.innerText = "🛑 Stop Music Sync";
-                processAudioBeat();
-            } catch (err) {
-                alert("Microphone permission denied: " + err);
+                const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+                if (bleCharacteristic.properties.writeWithoutResponse) {
+                    await bleCharacteristic.writeValueWithoutResponse(bytes);
+                } else {
+                    await bleCharacteristic.writeValue(bytes);
+                }
+                log("-> Sent successfully.");
+            } catch (e) {
+                log("-> Send failed: " + e.message);
             }
-        }
-
-        function processAudioBeat() {
-            if (!isMicActive) return;
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(dataArray);
-
-            let bassSum = 0;
-            for (let i = 0; i < 4; i++) bassSum += dataArray[i];
-            let bassAvg = bassSum / 4;
-
-            let dimFactor = parseInt(document.getElementById('brightness').value) / 255;
-            let dynamicLevel = Math.floor((bassAvg / 255) * 255 * dimFactor);
-
-            if (bassAvg > 100) {
-                setColor(0, dynamicLevel, dynamicLevel);
-            } else {
-                setColor(0, 0, Math.floor(dynamicLevel * 0.2));
-            }
-
-            requestAnimationFrame(processAudioBeat);
-        }
-
-        // --- SPEED / ACCELEROMETER REACTIVE MODE ---
-        function toggleMotionSync() {
-            const btn = document.getElementById('motionBtn');
-            if (isMotionActive) {
-                stopInteractiveModes();
-                return;
-            }
-            stopInteractiveModes();
-
-            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-                DeviceMotionEvent.requestPermission().then(response => {
-                    if (response === 'granted') startMotionSensor();
-                });
-            } else {
-                startMotionSensor();
-            }
-        }
-
-        function startMotionSensor() {
-            isMotionActive = true;
-            const btn = document.getElementById('motionBtn');
-            btn.classList.add('active');
-            btn.innerText = "🛑 Stop Motion Mode";
-
-            window.addEventListener('devicemotion', handleMotion);
-        }
-
-        function handleMotion(event) {
-            if (!isMotionActive) return;
-            let acc = event.accelerationIncludingGravity;
-            if (!acc) return;
-
-            let totalAcc = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-            document.getElementById('sensorDisplay').innerText = `G-Force Vector: ${totalAcc.toFixed(2)} m/s²`;
-
-            let dimFactor = parseInt(document.getElementById('brightness').value) / 255;
-            if (totalAcc > 15) {
-                setColor(Math.round(255 * dimFactor), 0, Math.round(50 * dimFactor));
-            } else if (totalAcc > 11) {
-                setColor(0, Math.round(240 * dimFactor), Math.round(255 * dimFactor));
-            } else {
-                setColor(0, Math.round(50 * dimFactor), Math.round(200 * dimFactor));
-            }
-        }
-
-        function stopInteractiveModes() {
-            isMicActive = false;
-            isMotionActive = false;
-
-            if (micStream) micStream.getTracks().forEach(track => track.stop());
-            if (audioCtx) audioCtx.close();
-            window.removeEventListener('devicemotion', handleMotion);
-
-            document.getElementById('micBtn').classList.remove('active');
-            document.getElementById('micBtn').innerText = "🎵 Phone Mic Beat Sync";
-            document.getElementById('motionBtn').classList.remove('active');
-            document.getElementById('motionBtn').innerText = "🏎️ Ride Speed / Accelerometer Mode";
-            document.getElementById('sensorDisplay').innerText = '';
         }
     </script>
 </body>
