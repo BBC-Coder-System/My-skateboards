@@ -16,6 +16,7 @@ https://bbc-coder-system.github.io/My-skateboards/
 |---|---|
 | `index.html` | **The app.** Single file, no build step. Everything (UI, BLE, effects, the 234-effect table) is inside. |
 | `probe2.html` | Effect Command Finder: tests versions of the built-in effect, speed and brightness commands (on a moving effect and on a solid colour). Created because Fire 2 showed the LotusLamp X versions of these commands **don't work** on the strip (effect #214 just cycled colours; brightness and speed did nothing). |
+| `probe3.html` | Fire Finder: tests hidden scenes FIRE (24) and CANDLELIGHT (4), brightness/speed on them, and whether switching Red↔Yellow Marquee keeps the dots moving. |
 | `probe.html` | Guided protocol finder: taps through command variants and asks "did the strip do X?". This is how the first commands were confirmed. Reuse this pattern for any new command that needs checking. |
 | `vendor/NoSleep.min.js` | NoSleep.js v0.12.0 (MIT). Keeps the iPhone screen awake in Ride mode. Stored locally so it works with no signal. |
 | `test.html`, `phase3-test.html` | Early experiments. Kept for reference only. |
@@ -38,7 +39,7 @@ _Last updated 2026-09-30._
 2. **Strip-level brightness and speed** for built-in effects.
 3. **Strip setup** (Settings): LED count and wire order. Still need to find the real LED count. Tap *Set LED count*, then watch the "Red Tail" test run end to end.
 4. **Ride mode** (keeps the screen awake) and the **phone-lock hand-off** (switches the strip to a built-in effect when the phone locks).
-5. **Fire 2 · Living flame** (Flow tab), second attempt. First version failed (only cycled colours) because its flame effects were all in the "Other" category this strip doesn't have. probe2.html then confirmed the effect/speed/brightness commands are right. Now the base is #155 R-W-R Flow by default (choices: 156, 161, 25, 31, 89, 95, 135, 205, 200). The top Speed slider multiplies the flow speed. **Waiting for me to say which base looks most like fire**, then make it the default and tune flicker.
+5. **Fire 2 · Living flame**: feedback 2026-09-30: **Red marquee (#205) looks best, but red only doesn't sell fire.** Next: probe3.html. If scene FIRE works → build "Fire 3" on it with flicker on top. If marquee colour swaps stay smooth → shift the marquee between red and yellow for colour variety. Earlier notes: second attempt. First version failed (only cycled colours) because its flame effects were all in the "Other" category this strip doesn't have. probe2.html then confirmed the effect/speed/brightness commands are right. Now the base is #155 R-W-R Flow by default (choices: 156, 161, 25, 31, 89, 95, 135, 205, 200). The top Speed slider multiplies the flow speed. **Waiting for me to say which base looks most like fire**, then make it the default and tune flicker.
 6. Stability fixes for disconnects and frozen strobes. Check whether the drop counter in the status pill keeps climbing.
 7. **Music** (phone mic) and **Motion** tabs: it's unknown whether Bluefy grants mic and motion access.
 
@@ -101,6 +102,10 @@ For step 2 (device-mic rhythm):
 | Mic sensitivity SS | `7e0706 SS ffffff00ef` | `sens` |
 
 Mic modes (`ELKSymphonyMicRhythmMode`): 128 Energy 1, 129 Rhythm 1, 130 Spectrum 1, 131 Scroll 1, 132 Energy 2, 133 Rhythm 2, 134 Spectrum 2, 135 Scroll 2. The order in which the app sends on / mode / sensitivity isn't checked yet. See `ui/symphony/SYMicFragment.java`. Build a probe-style yes/no test for these first.
+
+### Scenes (not built yet)
+
+LotusLamp X sends `7e0731 SS 07ffff00ef` (`setSymphonyScene`). For MELK-OA it offers only Party 6, Romantic 9, Rainbow 11, Forest 17, Lightning 25 (screen `SYInternalFragment`; also effects 199 and 212, and `setMonochrome`). The full `ELKSymphonyScene` list also has Sunrise 1, Sunset 2, Birthday 3, Candlelight 4, Fireworks 5, Dating 7, Starry sky 8, Disco 10, Movie 12, Christmas 13, Flowing 14, Sleeping 15, Ocean 16, Reading 18, Working 19, Dazzle 20, Gentle 21, Wedding 22, Snow 23, **Fire 24**, Valentine 26, Halloween 27, Warning 28, Running 100, Time machine 150. It's unknown which of these exist on this controller. probe3 tests 17, 24 and 4.
 
 ### Built-in effect list
 
