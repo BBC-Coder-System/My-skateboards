@@ -51,8 +51,11 @@
   .tile .d { font-size:11px; color:var(--dim); font-weight:400; margin-top:3px; }
   .swatches { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
   .sw { aspect-ratio:1; border-radius:50%; border:2px solid rgba(255,255,255,.15); padding:0; }
-  .modes { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
-  .mode { padding:10px 4px; font-size:12px; min-height:52px; border:1px solid var(--line); background:#1a2130; }
+  .modes { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .cats { display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:8px; }
+  .cat { flex:none; padding:8px 12px; border-radius:999px; font-size:12px; background:#1d2536; border:1px solid var(--line); }
+  .cat.active { border-color:var(--accent); color:var(--accent); }
+  .mode { padding:10px 8px; font-size:12px; min-height:48px; border:1px solid var(--line); background:#1a2130; text-align:left; line-height:1.25; }
   .mode.active { border-color:var(--accent); color:var(--accent); }
   .mode.star { background:#2a2440; }
   .mode small { display:block; color:var(--dim); font-weight:400; font-size:10px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -144,10 +147,10 @@
   <section id="tab-builtin" class="hidden">
     <div class="card">
       <div class="label">Built-in effects (run on the strip itself)</div>
-      <div class="hint">These keep running even when your phone is locked, and some <b>move along</b> the strip. Long-press a number to name or star it.</div>
+      <div class="hint">The same 234 effects as LotusLamp X. They keep running when your phone is locked, and most <b>move along</b> the strip. Long-press one to star it.</div>
+      <div class="slider"><label>Strip speed</label><input type="range" id="hwSpeed" min="1" max="100" value="50"><span class="val" id="hwSpeedVal">50</span></div>
+      <div class="cats" id="cats"></div>
       <div class="modes" id="modes"></div>
-      <div class="slider" style="margin-top:12px"><label>Strip speed</label><input type="range" id="hwSpeed" min="0" max="100" value="50"><span class="val" id="hwSpeedVal">50</span></div>
-      <div class="hint">Strip speed is experimental. It didn't clearly work in the test.</div>
     </div>
   </section>
 
@@ -167,7 +170,12 @@
         <option value="builtin">Switch to a built-in effect (keeps animating)</option>
         <option value="keep">Keep the last colour</option>
       </select>
-      <div class="slider" id="lockModeRow"><label>Built-in #</label><input type="range" id="lockMode" min="0" max="99" value="28"><span class="val" id="lockModeVal">28</span></div>
+      <div class="slider" id="lockModeRow"><label>Effect</label><select id="lockMode" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"></select></div>
+      <div class="label" style="margin-top:12px">Built-in effect command</div>
+      <select id="fxCmd" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
+        <option value="app">LotusLamp X style (default)</option>
+        <option value="legacy">Older style (try if built-in effects don't change)</option>
+      </select>
       <div class="row">
         <button class="small" onclick="disconnect()">Disconnect</button>
         <button class="small" onclick="clearFavourites()">Clear favourites</button>
@@ -200,9 +208,16 @@ const CMD = {
   on:     '7e0404f00001ff00ef',
   off:    '7e0404000000ff00ef',
   color:  (r, g, b) => '7e070503' + h2(r) + h2(g) + h2(b) + '10ef',
-  mode:   m => '7e0503' + h2(0x80 + m) + '03ffff00ef',
-  speed:  s => '7e0402' + h2(s) + 'ffffff00ef',  // unconfirmed
+  // From the LotusLamp X app (BlePackagingDevice.setSymphonyMode / speed / setRGBBrightness).
+  mode:   n => S.legacyFx ? '7e0503' + h2(n) + '03ffff00ef' : '7e0703' + h2(n) + '06ffff00ef', // built-in effect n (0-233), see SY_MODES
+  // legacy form is the older ELK-BLEDOM command; the probe confirmed it (#156 moved along the strip)
+  speed:  s => '7e0702' + h2(s) + 'ffffff00ef',   // built-in effect speed 1-100
+  bright: b => '7e0401' + h2(b) + '01ff0201ef',   // hardware brightness 0-100
 };
+// Built-in effect names and numbers from LotusLamp X (SYMPHONY / addressable devices).
+const SY_MODES = [{"cat":"Basic","fx":[[0,"Auto Play"],[1,"Magic Forward"],[2,"Magic Back"],[212,"7-Color Energy"],[193,"7-Color Jump"],[194,"R-G-B Jump"],[195,"Y-C-P Jump"],[196,"7-Color Strobe"],[197,"R-G-B Strobe"],[198,"Y-C-P Strobe"],[199,"7-Color Gradual"],[200,"R-Y Gradual"],[201,"R-P Gradual"],[202,"G-C Gradual"],[203,"G-Y Gradual"],[204,"B-P Gradual"],[205,"Red Marquee"],[206,"Green Marquee"],[207,"Blue Marquee"],[208,"Yellow Marquee"],[209,"Cyan Marquee"],[210,"Purple Marquee"],[211,"White Marquee"],[77,"7-Color Race"],[78,"7-Color Race Back"],[79,"R-G-B Race"],[80,"R-G-B Race Back"],[81,"Y-C-P Race"],[82,"Y-C-P Race Back"],[83,"7-Color Wave"],[84,"7-Color Wave Back"],[85,"R-G-B Wave"],[86,"R-G-B Wave Back"],[87,"Y-C-P Wave"],[88,"Y-C-P Wave Back"],[181,"7-Color Flush"],[182,"7-Color Flush Back"],[183,"R-G-B Flush"],[184,"R-G-B Flush Back"],[185,"Y-C-P Flush"],[186,"Y-C-P Flush Back"],[187,"7-Color Flush Close"],[188,"7-Color Flush Open"],[189,"R-G-B Flush Close"],[190,"R-G-B Flush Open"],[191,"Y-C-P Flush Close"],[192,"Y-C-P Flush Open"]]},{"cat":"Running","fx":[[89,"Red Running"],[91,"Green Running"],[93,"Blue Running"],[95,"Yellow Running"],[97,"Cyan Running"],[99,"Purple Running"],[101,"White Running"],[103,"7-Color Running"],[105,"R-G-B Running"],[107,"Y-C-P Running"],[109,"B-P-C-Y Running"],[111,"B-G-C-Y Running"],[113,"Red-Dot in White Running"],[115,"Green-Dot in Red Running"],[117,"Blue-Dot in Green Running"],[119,"Yellow-Dot in Blue Running"],[121,"Cyan-Dot in Yellow Running"],[123,"Purple-Dot in Cyan Running"],[125,"White-Dot in Purple Running"],[127,"White-Dot in Red Running"],[129,"7-Color in Red Running"],[131,"7-Color in Green Running"],[133,"7-Color in Blue Running"],[135,"7-Color in Yellow Running"],[137,"7-Color in Cyan Running"],[139,"7-Color in Purple Running"],[141,"7-Color in White Running"],[167,"Green-Dot in Blue Running"],[169,"Green-Dot in Red Running"],[171,"Red-Dot in Blue Running"],[173,"Cyan-Dot in Yellow Running"],[175,"Yellow-Dot in Purple Running"],[177,"White-Dot in Yellow Running"],[179,"Yellow-Dot in White Running"]]},{"cat":"Run back","fx":[[90,"Red Run Back"],[92,"Green Run Back"],[94,"Blue Run Back"],[96,"Yellow Run Back"],[98,"Cyan Run Back"],[100,"Purple Run Back"],[102,"White Run Back"],[104,"7-Color Run Back"],[106,"R-G-B Run Back"],[108,"Y-C-P Run Back"],[110,"B-P-C-Y Run Back"],[112,"B-G-C-Y Run Back"],[114,"Red-Dot in White Run Back"],[116,"Green-Dot in Red Run Back"],[118,"Blue-Dot in Green Run Back"],[120,"Yellow-Dot in Blue Run Back"],[122,"Cyan-Dot in Yellow Run Back"],[124,"Purple-Dot in Cyan Run Back"],[126,"White-Dot in Purple Run Back"],[128,"White-Dot in Red Run Back"],[130,"7-Color in Red Run Back"],[132,"7-Color in Green Run Back"],[134,"7-Color in Blue Run Back"],[136,"7-Color in Yellow Run Back"],[138,"7-Color in Cyan Run Back"],[140,"7-Color in Purple Run Back"],[142,"7-Color in White Run Back"],[168,"Green-Dot in Blue Run Back"],[170,"Green-Dot in Red Run Back"],[172,"Red-Dot in Blue Run Back"],[174,"Cyan-Dot in Yellow Run Back"],[176,"Yellow-Dot in Purple Run Back"],[178,"White-Dot in Yellow Run Back"],[180,"Yellow-Dot in White Run Back"]]},{"cat":"Water","fx":[[39,"7-Color Water"],[40,"7-Color Water Back"],[41,"R-G-B Water"],[42,"R-G-B Water Back"],[43,"Y-C-P Water"],[44,"Y-C-P Water Back"],[45,"R-G Water"],[46,"R-G Water Back"],[47,"G-B Water"],[48,"G-B Water Back"],[49,"Y-B Water"],[50,"Y-B Water Back"],[51,"Y-C Water"],[52,"Y-C Water Back"],[53,"C-P Water"],[54,"C-P Water Back"],[55,"White Water"],[56,"White Water Back"]]},{"cat":"Tail","fx":[[23,"7-Color Tail"],[24,"7-Color Tail Back"],[25,"Red Tail"],[26,"Red Tail Back"],[27,"Green Tail"],[28,"Green Tail Back"],[29,"Blue Tail"],[30,"Blue Tail Back"],[31,"Yellow Tail"],[32,"Yellow Tail Back"],[33,"Cyan Tail"],[34,"Cyan Tail Back"],[35,"Purple Tail"],[36,"Purple Tail Back"],[37,"White Tail"],[38,"White Tail Back"]]},{"cat":"Flow","fx":[[143,"W-R-W Flow"],[144,"W-R-W Flow Back"],[145,"W-G-W Flow"],[146,"W-G-W Flow Back"],[147,"W-B-W Flow"],[148,"W-B-W Flow Back"],[149,"W-Y-W Flow"],[150,"W-Y-W Flow Back"],[151,"W-C-W Flow"],[152,"W-C-W Flow Back"],[153,"W-P-W Flow"],[154,"W-P-W Flow Back"],[155,"R-W-R Flow"],[156,"R-W-R Flow Back"],[157,"G-W-G Flow"],[158,"G-W-G Flow Back"],[159,"B-W-B Flow"],[160,"B-W-B Flow Back"],[161,"Y-W-Y Flow"],[162,"Y-W-Y Flow Back"],[163,"C-W-C Flow"],[164,"C-W-C Flow Back"],[165,"P-W-P Flow"],[166,"P-W-P Flow Back"]]},{"cat":"Transition","fx":[[3,"7-Color Trans"],[4,"7-Color Trans Back"],[5,"R-G-B Trans"],[6,"R-G-B Trans Back"],[7,"Y-C-P Trans"],[8,"Y-C-P Trans Back"],[9,"6-Color to Red"],[10,"6-Color to Red Back"],[11,"6-Color to Green"],[12,"6-Color to Green Back"],[13,"6-Color to Blue"],[14,"6-Color to Blue Back"],[15,"6-Color to Cyan"],[16,"6-Color to Cyan Back"],[17,"6-Color to Yellow"],[18,"6-Color to Yellow Back"],[19,"6-Color to Purple"],[20,"6-Color to Purple Back"],[21,"6-Color to White"],[22,"6-Color to White Back"]]},{"cat":"Open / close","fx":[[57,"7-Color Close"],[58,"7-Color Open"],[59,"R-G-B Close"],[60,"R-G-B Open"],[61,"Y-C-P Close"],[62,"Y-C-P Open"],[63,"Red Close"],[64,"Red Open"],[65,"Green Close"],[66,"Green Open"],[67,"Blue Close"],[68,"Blue Open"],[69,"Yellow Close"],[70,"Yellow Open"],[71,"Cyan Close"],[72,"Cyan Open"],[73,"Purple Close"],[74,"Purple Open"],[75,"White Close"],[76,"White Open"]]},{"cat":"Other","fx":[[213,"Special seven-color opening at 25 point"],[214,"Orange red dark bright dark filtered running water"],[215,"Yellow green dark bright dark filtered running water"],[216,"Green dark bright dark filtered running water"],[217,"Green blue dark bright dark filtered running water"],[218,"Blue dark bright dark filtered running water"],[219,"Purple dark light dark filtered running water"],[220,"Red dark bright dark filtered running water"],[221,"Seven-color stacking"],[222,"Orange stacking"],[223,"Yellow-green stacking"],[224,"Green stacking"],[225,"Cyan-blue stacking"],[226,"Blue stacking"],[227,"Purple stacking"],[228,"Red stacking"],[229,"Colorful gradient"],[230,"Colorful transition"],[231,"Red-purple transition"],[232,"Yellow-white transition"],[233,"Yellow-orange transition"]]}];
+const FX_NAME = Object.fromEntries(SY_MODES.flatMap(c => c.fx));
+const fxName = n => FX_NAME[n] || 'Effect #' + n;
 
 /* ---------------- storage ---------------- */
 function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
@@ -214,10 +229,11 @@ const S = {
   bright: 1, speed: 1, fps: load('fps', 15), drops: 0,
   current: null,              // {kind:'solid'|'effect'|'builtin', id, params}
   params: load('params', {}), // per-effect saved params
-  modeNames: load('modeNames', { 7: 'animation', 28: 'moves along strip' }),
-  modeStars: load('modeStars', [28]),
+  fxStars: load('fxStars', null) || load('modeStars', [28]).map(m => 128 + m).filter(n => n <= 233),
+  fxCat: load('fxCat', 'Basic'),
+  hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   favs: load('favs', []),
-  lockAction: load('lockAction2', 'builtin'), lockMode: load('lockMode', 28),
+  lockAction: load('lockAction2', 'builtin'), lockMode: load('lockFx', null) ?? 128 + load('lockMode', 28),
 };
 
 /* ---------------- BLE link with coalescing writer ---------------- */
@@ -495,13 +511,19 @@ async function runEffect(id, params) {
   if (e.needs === 'mic' && !(await startMic())) return;
   if (e.needs === 'motion' && !(await startMotion())) return;
   scratch = {};
+  leaveBuiltin();
   S.current = { kind: 'effect', id, params: params || paramsFor(e) };
   ensureOn();
   startEngine();
   renderActive(); renderParams();
 }
+// Built-in effects are dimmed with the strip's own brightness command; phone-driven colours
+// are dimmed by scaling RGB. Reset hardware brightness when leaving a built-in so the two don't stack.
+function leaveBuiltin() { if (S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); } }
+function applyHwBright() { const b = Math.round(S.bright * 100); if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); } }
 function setSolid(hex) {
   stopEngine();
+  leaveBuiltin();
   S.current = { kind: 'solid', id: hex };
   ensureOn();
   sendColor(hexToRgb(hex));
@@ -512,13 +534,14 @@ function setBuiltin(m) {
   S.current = { kind: 'builtin', id: m };
   ensureOn();
   sendCmd(CMD.mode(m));
+  applyHwBright();
   document.getElementById('preview').style.background = 'linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f)';
   renderActive(); renderParams();
 }
 function restoreOutput() {
   if (!S.current || !S.power) return;
   if (S.current.kind === 'solid') sendColor(hexToRgb(S.current.id));
-  else if (S.current.kind === 'builtin') sendCmd(CMD.mode(S.current.id));
+  else if (S.current.kind === 'builtin') { sendCmd(CMD.mode(S.current.id)); S.hwBright = 100; applyHwBright(); }
   else startEngine();
 }
 function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPower(); } }
@@ -567,7 +590,7 @@ function enterRide() {
   try { if (!noSleep && window.NoSleep) noSleep = new NoSleep(); if (noSleep) noSleep.enable(); } catch (e) { console.warn(e); }
   keepAwake();
   const cur = S.current;
-  document.getElementById('rideName').textContent = !cur ? '' : cur.kind === 'effect' ? byId[cur.id].name : cur.kind === 'builtin' ? (S.modeNames[cur.id] || 'Built-in #' + cur.id) : 'Solid colour';
+  document.getElementById('rideName').textContent = !cur ? '' : cur.kind === 'effect' ? byId[cur.id].name : cur.kind === 'builtin' ? fxName(cur.id) : 'Solid colour';
   document.getElementById('ride').classList.remove('hidden');
 }
 function exitRide() {
@@ -599,36 +622,34 @@ document.getElementById('swatches').addEventListener('click', ev => { const b = 
 document.getElementById('picker').addEventListener('input', ev => setSolid(ev.target.value));
 
 function renderModes() {
-  const box = document.getElementById('modes');
-  let html = '';
-  const order = [...S.modeStars, ...Array.from({ length: 100 }, (_, i) => i).filter(i => !S.modeStars.includes(i))];
-  for (const m of order) {
-    const name = S.modeNames[m] || '';
-    html += `<button class="mode${S.modeStars.includes(m) ? ' star' : ''}" data-mode="${m}">${S.modeStars.includes(m) ? '★ ' : ''}#${m}<small>${name || '&nbsp;'}</small></button>`;
-  }
-  box.innerHTML = html;
+  const cats = [{ cat: '★ Starred', fx: S.fxStars.map(n => [n, fxName(n)]) }, ...SY_MODES];
+  if (!cats.some(c => c.cat === S.fxCat)) S.fxCat = 'Basic';
+  document.getElementById('cats').innerHTML = cats.map(c => `<button class="cat${c.cat === S.fxCat ? ' active' : ''}" data-cat="${c.cat}">${c.cat} <small>${c.fx.length}</small></button>`).join('');
+  const list = cats.find(c => c.cat === S.fxCat).fx;
+  document.getElementById('modes').innerHTML = list.length
+    ? list.map(([n, name]) => `<button class="mode${S.fxStars.includes(n) ? ' star' : ''}" data-mode="${n}">${S.fxStars.includes(n) ? '★ ' : ''}${name}<small>#${n}</small></button>`).join('')
+    : '<div class="hint" style="grid-column:1/-1">No starred effects yet. Long-press any effect to star it.</div>';
   renderActive();
 }
+document.getElementById('cats').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-cat]'); if (!b) return;
+  S.fxCat = b.dataset.cat; store('fxCat', S.fxCat); renderModes();
+});
 (function wireModes() {
   const box = document.getElementById('modes');
   let pressTimer = null, longPressed = false;
-  const start = ev => { const b = ev.target.closest('[data-mode]'); if (!b) return; longPressed = false; pressTimer = setTimeout(() => { longPressed = true; editMode(+b.dataset.mode); }, 550); };
+  const start = ev => { const b = ev.target.closest('[data-mode]'); if (!b) return; longPressed = false; pressTimer = setTimeout(() => { longPressed = true; toggleStar(+b.dataset.mode); }, 550); };
   const cancel = () => clearTimeout(pressTimer);
   box.addEventListener('touchstart', start, { passive: true }); box.addEventListener('mousedown', start);
   ['touchend', 'touchmove', 'mouseup', 'mouseleave'].forEach(n => box.addEventListener(n, cancel));
   box.addEventListener('contextmenu', e => e.preventDefault());
   box.addEventListener('click', ev => { const b = ev.target.closest('[data-mode]'); if (!b || longPressed) return; setBuiltin(+b.dataset.mode); });
 })();
-function editMode(m) {
-  const name = prompt('Name built-in effect #' + m + ' (leave empty to clear):', S.modeNames[m] || '');
-  if (name === null) return;
-  if (name.trim()) S.modeNames[m] = name.trim(); else delete S.modeNames[m];
-  const starred = S.modeStars.includes(m);
-  if (confirm(starred ? 'Unstar #' + m + '?' : 'Star #' + m + ' (pin to top)?')) {
-    S.modeStars = starred ? S.modeStars.filter(x => x !== m) : [...S.modeStars, m];
-  }
-  store('modeNames', S.modeNames); store('modeStars', S.modeStars);
-  renderModes();
+function toggleStar(n) {
+  const on = !S.fxStars.includes(n);
+  S.fxStars = on ? [...S.fxStars, n] : S.fxStars.filter(x => x !== n);
+  store('fxStars', S.fxStars); renderModes();
+  toast((on ? '★ Starred ' : 'Unstarred ') + fxName(n));
 }
 
 function renderActive() {
@@ -676,17 +697,26 @@ function bindSlider(id, onChange, fmtFn) {
   el.addEventListener('input', upd);
   return el;
 }
-bindSlider('bright', v => { S.bright = v / 100; store('bright', v); if (S.current && S.current.kind === 'solid') sendColor(hexToRgb(S.current.id)); }, v => v + '%');
+bindSlider('bright', v => {
+  S.bright = v / 100; store('bright', v);
+  if (!S.current) return;
+  if (S.current.kind === 'solid') sendColor(hexToRgb(S.current.id));
+  else if (S.current.kind === 'builtin') applyHwBright();
+}, v => v + '%');
 bindSlider('speed', v => { S.speed = v / 100; }, v => (v / 100).toFixed(1) + '×');
 bindSlider('fps', v => { S.fps = v; store('fps', v); if (timer) startEngine(); }, v => v + '/s');
-bindSlider('hwSpeed', v => sendCmd(CMD.speed(v)), v => v);
-bindSlider('lockMode', v => { S.lockMode = v; store('lockMode', v); }, v => v);
+bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); pendingColor = CMD.speed(v); pump(); }, v => v);
+document.getElementById('lockMode').innerHTML = SY_MODES.map(c => `<optgroup label="${c.cat}">` + c.fx.map(([n, name]) => `<option value="${n}">${name}</option>`).join('') + '</optgroup>').join('');
+document.getElementById('fxCmd').value = S.legacyFx ? 'legacy' : 'app';
+document.getElementById('fxCmd').addEventListener('change', e => { S.legacyFx = e.target.value === 'legacy'; store('legacyFx', S.legacyFx); if (S.current && S.current.kind === 'builtin') sendCmd(CMD.mode(S.current.id)); });
+document.getElementById('lockMode').addEventListener('change', e => { S.lockMode = +e.target.value; store('lockFx', S.lockMode); });
 document.getElementById('lockAction').addEventListener('change', e => { S.lockAction = e.target.value; store('lockAction2', S.lockAction); document.getElementById('lockModeRow').style.display = S.lockAction === 'builtin' ? '' : 'none'; });
 (function initSettings() {
   const b = load('bright', 100); document.getElementById('bright').value = b; S.bright = b / 100; document.getElementById('brightVal').textContent = b + '%';
   document.getElementById('fps').value = S.fps; document.getElementById('fpsVal').textContent = S.fps + '/s';
   document.getElementById('lockAction').value = S.lockAction;
-  document.getElementById('lockMode').value = S.lockMode; document.getElementById('lockModeVal').textContent = S.lockMode;
+  document.getElementById('lockMode').value = S.lockMode;
+  document.getElementById('hwSpeed').value = S.hwSpeed; document.getElementById('hwSpeedVal').textContent = S.hwSpeed;
   document.getElementById('lockModeRow').style.display = S.lockAction === 'builtin' ? '' : 'none';
 })();
 function openSettings() { document.getElementById('settings').classList.toggle('hidden'); }
@@ -700,7 +730,7 @@ document.querySelectorAll('nav button').forEach(b => b.addEventListener('click',
 /* ---------------- favourites ---------------- */
 function saveFavourite() {
   if (!S.current) { toast('Pick a colour or effect first'); return; }
-  const def = S.current.kind === 'effect' ? byId[S.current.id].name : S.current.kind === 'builtin' ? (S.modeNames[S.current.id] || 'Built-in #' + S.current.id) : 'Colour';
+  const def = S.current.kind === 'effect' ? byId[S.current.id].name : S.current.kind === 'builtin' ? fxName(S.current.id) : 'Colour';
   const name = prompt('Name this favourite:', def);
   if (!name) return;
   S.favs.push({ name, cur: JSON.parse(JSON.stringify(S.current)), bright: S.bright, speed: S.speed });

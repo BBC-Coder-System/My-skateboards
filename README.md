@@ -7,15 +7,25 @@ https://bbc-coder-system.github.io/My-skateboards/
 - `probe.html`: guided protocol finder used to confirm the commands
 - `test.html`, `phase3-test.html`: earlier experiments
 
-## Confirmed protocol (service FFF0, write char FFF3, write-without-response)
+## Protocol (service FFF0, write char FFF3, write-without-response)
+
+Confirmed on the strip with `probe.html`:
 
 | Action | Bytes |
 |---|---|
 | Wake-up after connect | `7e0783`, then `7e0404` |
 | Power on / off | `7e0404f00001ff00ef` / `7e0404000000ff00ef` |
 | Colour | `7e070503 RR GG BB 10ef` |
-| Built-in effect n | `7e0503 (80+n) 03ffff00ef` (#28 moves along the strip) |
-| Brightness | no working command found, so the app scales RGB |
-| Effect speed | `7e0402 SS ffffff00ef`, unconfirmed |
+| Built-in effect (older form) | `7e0503 NN 03ffff00ef` (NN=156 moved along the strip) |
 
-Streaming colour updates stays smooth at about 17–20 per second.
+From the LotusLamp X Android app (v5.19.14), which treats `MELK-OA…` names as a SYMPHONY (addressable) device. Not yet confirmed on the strip:
+
+| Action | Bytes |
+|---|---|
+| Built-in effect NN (0–233) | `7e0703 NN 06ffff00ef` |
+| Effect speed SS (1–100) | `7e0702 SS ffffff00ef` |
+| Brightness BB (0–100) | `7e0401 BB 01ff0201ef` |
+
+All frames are 9 bytes: `7E len cmd p1 p2 p3 p4 p5 EF`, with unused parameters padded as `FF … 00`. The 234 effect names and numbers are in `SY_MODES` in `index.html`.
+
+Streaming colour updates stays smooth at about 15–20 per second.
