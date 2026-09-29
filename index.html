@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BLE Phase 2 Protocol Crack</title>
+    <title>BLE Phase 3 Deep Protocol Crack</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #121212; color: #fff; padding: 15px; max-width: 500px; margin: 0 auto; text-align: center; }
         h1 { font-size: 18px; color: #00f0ff; }
@@ -11,41 +11,40 @@
         button { padding: 10px 14px; font-size: 13px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin: 4px; display: block; width: 100%; }
         .btn-main { background: #00f0ff; color: #000; font-size: 15px; }
         .btn-hex { background: #2d3748; color: #63b3ed; border: 1px solid #4a5568; text-align: left; }
-        #log { background: #000; color: #00ff00; font-family: monospace; font-size: 11px; text-align: left; padding: 8px; border-radius: 6px; height: 140px; overflow-y: auto; margin-top: 10px; }
+        #log { background: #000; color: #00ff00; font-family: monospace; font-size: 11px; text-align: left; padding: 8px; border-radius: 6px; height: 160px; overflow-y: auto; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-    <h1>🔍 Phase 2: Color Opcode Crack</h1>
+    <h1>🔍 Phase 3: Deep Protocol Crack</h1>
     <div id="status" style="color: #ecc94b; font-size: 13px; margin-bottom: 8px;">Status: Disconnected</div>
 
     <div class="card">
-        <button class="btn-main" onclick="connectBLE()">Connect BLE Controller</button>
+        <button class="btn-main" onclick="connectBLE()">Connect & Scan BLE</button>
     </div>
 
     <div class="card">
-        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">TEST SUITE: RED COLOR OPCODES</label>
+        <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 6px;">MODE-BASED & ALTERNATE PAYLOADS</label>
         
-        <!-- Standard Color Opcode Variations -->
-        <button class="btn-hex" onclick="send('7e0001ff0000000000ef')">1. Opcode 01 (RGB): 7e0001ff0000000000ef</button>
-        <button class="btn-hex" onclick="send('7e0002ff0000000000ef')">2. Opcode 02 (RGB): 7e0002ff0000000000ef</button>
-        <button class="btn-hex" onclick="send('7e0003ff0000000000ef')">3. Opcode 03 (RGB): 7e0003ff0000000000ef</button>
-        <button class="btn-hex" onclick="send('7e0005ff0000000000ef')">4. Opcode 05 (RGB): 7e0005ff0000000000ef</button>
-        <button class="btn-hex" onclick="send('7e0007ff0000000000ef')">5. Opcode 07 (RGB): 7e0007ff0000000000ef</button>
+        <!-- Mode 0x00 / 0x01 Color Encapsulation -->
+        <button class="btn-hex" onclick="send('7e070300ff00000000ef')">1. Mode 00 (Pure Red): 7e070300ff00000000ef</button>
+        <button class="btn-hex" onclick="send('7e000301ff00000000ef')">2. Mode 01 Encapsulation: 7e000301ff00000000ef</button>
+        <button class="btn-hex" onclick="send('7e000503ff0000ff00ef')">3. Header 7e000503...ff00: 7e000503ff0000ff00ef</button>
+        
+        <!-- Alternative Command IDs -->
+        <button class="btn-hex" onclick="send('7e0022ff0000000000ef')">4. Opcode 0x22 (RGB): 7e0022ff0000000000ef</button>
+        <button class="btn-hex" onclick="send('7e0061ff0000000000ef')">5. Opcode 0x61 (RGB): 7e0061ff0000000000ef</button>
+        <button class="btn-hex" onclick="send('7e000a03ff00000000ef')">6. Header 0a03 (RGB): 7e000a03ff00000000ef</button>
 
-        <!-- Addressable / Strip Specific Formats -->
-        <button class="btn-hex" onclick="send('7e000503ff00000000ef')">6. Sub-Op 05 03: 7e000503ff00000000ef</button>
-        <button class="btn-hex" onclick="send('7e000501ff00000000ef')">7. Sub-Op 05 01: 7e000501ff00000000ef</button>
-        <button class="btn-hex" onclick="send('7e000800ff00000000ef')">8. Opcode 08: 7e000800ff00000000ef</button>
-
-        <!-- RGBW (4-Color / 10-Byte) Format -->
-        <button class="btn-hex" onclick="send('7e000503ff0000000000ef')">9. RGBW Format: 7e000503ff0000000000ef</button>
+        <!-- Alternative Characteristic Test -->
+        <button class="btn-hex" style="background:#805ad5; color:#fff;" onclick="sendToAltChar('7e070503ff0000ff00ef')">7. Send Standard Red to ALL Found Characteristics</button>
     </div>
 
     <div id="log">--- Execution Log ---<br></div>
 
     <script>
-        let bleDevice, bleCharacteristic;
+        let bleDevice, primaryService;
+        let characteristicsMap = [];
 
         function log(msg) {
             const l = document.getElementById('log');
@@ -55,39 +54,74 @@
 
         async function connectBLE() {
             try {
+                log("Searching for BLE...");
                 bleDevice = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
                 });
 
                 const server = await bleDevice.gatt.connect();
-                const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
-                bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
+                primaryService = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
                 
-                document.getElementById('status').innerText = "Connected!";
+                characteristicsMap = await primaryService.getCharacteristics();
+                log(`Connected! Found ${characteristicsMap.length} characteristics:`);
+                
+                characteristicsMap.forEach(c => {
+                    log(` - ${c.uuid.substring(0, 8)} [Write: ${c.properties.write || c.properties.writeWithoutResponse}]`);
+                });
+
+                document.getElementById('status').innerText = "Connected to: " + (bleDevice.name || "Board");
                 document.getElementById('status').style.color = "#48bb78";
-                log("Connected to BLE.");
             } catch (e) {
                 log("Err: " + e.message);
             }
         }
 
         async function send(hex) {
-            if (!bleCharacteristic) {
+            if (!characteristicsMap.length) {
                 log("Err: Connect BLE first!");
                 return;
             }
-            log("Sending: " + hex);
+            
+            // Target FFF3 by default
+            let targetChar = characteristicsMap.find(c => c.uuid.includes("fff3")) || characteristicsMap[0];
+            
+            log("Sending to " + targetChar.uuid.substring(0, 8) + ": " + hex);
             try {
                 const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-                if (bleCharacteristic.properties.writeWithoutResponse) {
-                    await bleCharacteristic.writeValueWithoutResponse(bytes);
+                if (targetChar.properties.writeWithoutResponse) {
+                    await targetChar.writeValueWithoutResponse(bytes);
                 } else {
-                    await bleCharacteristic.writeValue(bytes);
+                    await targetChar.writeValue(bytes);
                 }
                 log("-> Sent!");
             } catch (e) {
-                log("-> Failed: " + e.message);
+                log("-> Send failed: " + e.message);
+            }
+        }
+
+        async function sendToAltChar(hex) {
+            if (!characteristicsMap.length) {
+                log("Err: Connect BLE first!");
+                return;
+            }
+
+            const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+            
+            for (let c of characteristicsMap) {
+                if (c.properties.write || c.properties.writeWithoutResponse) {
+                    try {
+                        log("Testing Endpoint: " + c.uuid.substring(0, 8));
+                        if (c.properties.writeWithoutResponse) {
+                            await c.writeValueWithoutResponse(bytes);
+                        } else {
+                            await c.writeValue(bytes);
+                        }
+                        log("-> Sent successfully to " + c.uuid.substring(0, 8));
+                    } catch (e) {
+                        log("-> Failed on " + c.uuid.substring(0, 8) + ": " + e.message);
+                    }
+                }
             }
         }
     </script>
