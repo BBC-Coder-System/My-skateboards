@@ -138,7 +138,7 @@
       </div>
 
       <div id="src-tempo" class="hidden">
-        <div class="hint">For YouTube Music, Spotify and other apps (iPhone doesn't let any app read their sound). Tap the big button along with the beat, 4 or more times. The lights then keep that tempo on their own. If they drift, tap again or nudge.</div>
+        <div class="hint">For YouTube Music, Spotify and other apps (iPhone doesn't let any app read their sound). Tap the big button along with the beat, 8 or more times (up to 12 makes it even tighter). The lights then keep that tempo on their own. If they drift, tap again or nudge.</div>
         <button id="btnTap" class="primary" style="width:100%;padding:26px;font-size:20px;margin-top:6px">TAP THE BEAT</button>
         <div class="row" style="align-items:center">
           <button class="small" onclick="bpmAdj(-1)">−</button>
@@ -327,12 +327,17 @@ let inflight = false, lastColorHex = '';
 // The controller only digests ~17-20 packets/s. Writes-without-response resolve instantly on the
 // phone, so without pacing, slider drags pile up in the BLE stack and the strip lags behind.
 // Pace every write to the update rate; pendingColor always holds only the newest colour.
-let lastWriteAt = 0, pumpTimer = null;
+let lastWriteAt = 0, pumpTimer = null, urgent = false;
 function pump() {
-  if (inflight || !chr || pumpTimer) return;
+  if (inflight || !chr) return;
   if (!cmdQueue.length && !pendingColor) return;
-  const wait = lastWriteAt + 1000 / S.fps - performance.now();
-  if (wait > 0) { pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, wait); return; }
+  // A beat pulse (urgent) skips the pacing gap: waiting its turn behind the previous packet was
+  // the remaining 0-66 ms wobble. It still never overlaps a write in flight.
+  if (urgent) { clearTimeout(pumpTimer); pumpTimer = null; }
+  if (pumpTimer) return;
+  const wait = lastWriteAt + 1000 / S.fps - 8 - performance.now(); // 8 ms slack so frame-timer jitter doesn't push a frame back a whole slot
+  if (wait > 0 && !urgent) { pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, wait); return; }
+  urgent = false;
   let hex;
   if (cmdQueue.length) { hex = cmdQueue.shift(); lastColorHex = ''; }
   else if (pendingColor) { hex = pendingColor; pendingColor = null; if (hex === lastColorHex) return; lastColorHex = hex; }
@@ -496,7 +501,7 @@ function ensurePlayerGraph() {
 function startSampler() { if (!audio.sampler) audio.sampler = setInterval(sampleAudio, 30); }
 function sampleAudio() {
   const now = performance.now();
-  if (S.audioSrc === 'tempo') return sampleTempo(now);
+  if (S.audioSrc === 'tempo') { if (!(timer && tempoLocked())) sampleTempo(now); return; } // otherwise the engine does it on the beat grid
   const an = S.audioSrc === 'mic' ? audio.micAn : audio.playAn;
   if (!an || (S.audioSrc === 'player' && playerEl().paused)) { applyFrame({ bass: audio.bass * 0.8, mid: audio.mid * 0.8, treble: audio.treble * 0.8 }, now, false); return; }
   if (!audio.buf || audio.buf.length !== an.frequencyBinCount) audio.buf = new Uint8Array(an.frequencyBinCount);
@@ -523,12 +528,15 @@ function applyFrame(f, now, detect) {
 }
 function sampleTempo(now) {
   // Synthesised music: a kick on every beat (stronger on the first of each 4), hats on the off-beats.
-  const period = 60000 / S.bpm, x = (now - tempo.t0) / period, idx = Math.floor(x), frac = x - idx;
+  const period = 60000 / S.bpm, x = (now - tempo.t0) / period + 1e-6, idx = Math.floor(x), frac = x - idx; // epsilon: a frame exactly on the beat counts as the beat
   if (idx !== tempo.lastIdx) { tempo.lastIdx = idx; audio.beatCount++; audio.lastBeat = now; flashBeat(); }
   const accent = ((idx % 4) + 4) % 4 === 0 ? 1 : 0.75;
   applyFrame({ bass: accent * Math.exp(-frac * 6), mid: 0.15 + 0.45 * accent * Math.exp(-frac * 3), treble: 0.35 * Math.exp(-((frac * 2) % 1) * 6) }, now, false);
 }
-function updateAudio() { audio.beat = audio.beatCount !== audio.seen; audio.seen = audio.beatCount; } // once per engine tick
+function updateAudio(now) { // once per engine tick
+  if (S.audioSrc === 'tempo') sampleTempo(now);
+  audio.beat = audio.beatCount !== audio.seen; audio.seen = audio.beatCount;
+}
 let beatFlashT;
 function flashBeat() {
   const b = document.getElementById('btnTap'); if (!b) return;
@@ -539,7 +547,7 @@ async function ensureAudio() {
   startSampler();
   if (S.audioSrc === 'mic') return startMic();
   if (S.audioSrc === 'player' && !songs.length) micHint('Add songs and press ▶ to start the music.');
-  if (S.audioSrc === 'tempo' && tempo.taps.length < 2) micHint('Tap the beat on the TAP button, 4 or more times.');
+  if (S.audioSrc === 'tempo' && tempo.taps.length < 2) micHint('Tap the beat on the TAP button, 8 or more times.');
   return true;
 }
 
@@ -566,15 +574,23 @@ function setBpm(v) {
 function onTap() {
   const now = performance.now(), taps = tempo.taps;
   if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
-  taps.push(now); if (taps.length > 8) taps.shift();
+  taps.push(now); if (taps.length > 12) taps.shift();
+  let beatAt = now;
   if (taps.length >= 2) {
-    const gaps = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
-    S.bpm = Math.max(40, Math.min(240, Math.round(600000 / gaps[Math.floor(gaps.length / 2)]) / 10)); store('bpm', S.bpm);
+    // Fit a straight line through all taps: far less sensitive to one early/late tap than gap averages.
+    const n = taps.length, mx = (n - 1) / 2, my = taps.reduce((a, b) => a + b, 0) / n;
+    let sxy = 0, sxx = 0; taps.forEach((t, i) => { sxy += (i - mx) * (t - my); sxx += (i - mx) ** 2; });
+    const slope = sxy / sxx;
+    let bpm = 60000 / slope;
+    if (Math.abs(bpm - Math.round(bpm)) < 0.4) bpm = Math.round(bpm); // most songs sit on a whole BPM
+    S.bpm = Math.max(40, Math.min(240, Math.round(bpm * 10) / 10)); store('bpm', S.bpm);
     document.getElementById('bpmVal').textContent = S.bpm;
+    if (n >= 3) beatAt = my + (n - 1 - mx) * slope; // where the fitted line puts this beat
   }
-  tempo.t0 = now; tempo.lastIdx = -1; // this tap is a beat
+  tempo.t0 = beatAt; tempo.lastIdx = Math.floor((now - beatAt) / (60000 / S.bpm) + 1e-6) - 1; // fire this beat now
+  if (timer && tempoLocked()) { nextFrameAt = now; clearTimeout(timer); scheduleFrame(); } // re-lock the frame grid
   if (S.audioSrc !== 'tempo') selectSource('tempo');
-  micHint(taps.length < 4 ? 'Keep tapping… (' + taps.length + ')' : 'Locked to ' + S.bpm + ' BPM. Tap again any time to re-sync.');
+  micHint(taps.length < 8 ? 'Keep tapping… (' + taps.length + '/8)' : 'Locked to ' + S.bpm + ' BPM. More taps = tighter lock; tap again any time to re-sync.');
 }
 document.getElementById('btnTap').addEventListener('pointerdown', ev => { ev.preventDefault(); onTap(); });
 function bpmAdj(d) { setBpm(S.bpm + d); }
@@ -773,6 +789,8 @@ const EFFECTS = [
       if (st.flow !== flow) { st.flow = flow; sendCmd(CMD.speed(flow)); }
       if (audio.beat) {
         st.k = 1;
+        const peak = Math.max(3, Math.min(100, Math.round(S.bright * 100)));
+        pendingColor = null; S.hwBright = peak; sendCmd(CMD.bright(peak)); // the visible pulse: first in line
         if (p.kick > 0) { sendCmd(CMD.speed(Math.min(100, Math.round(flow * (1 + p.kick))))); st.kicked = true; }
       } else st.k *= 0.75;
       if (st.kicked && st.k < 0.3) { sendCmd(CMD.speed(flow)); st.kicked = false; }
@@ -809,24 +827,43 @@ function paramsFor(e) {
 }
 
 /* ---------------- engine ---------------- */
-let timer = null, tVirtual = 0, lastTick = 0, scratch = {};
+// Frames are scheduled against exact target times (setInterval drifts and jitters). In Tempo mode the
+// frame grid is locked to the beat grid, so a frame lands exactly on every beat instead of up to a
+// frame late: the source of the "wobbly" beat.
+let timer = null, tVirtual = 0, lastTick = 0, scratch = {}, nextFrameAt = 0;
 function startEngine() {
   stopEngine();
-  lastTick = performance.now();
-  timer = setInterval(tick, 1000 / S.fps);
+  lastTick = nextFrameAt = performance.now();
+  scheduleFrame();
 }
-function stopEngine() { if (timer) clearInterval(timer); timer = null; }
-function tick() {
-  const now = performance.now();
+function stopEngine() { if (timer) clearTimeout(timer); timer = null; }
+function scheduleFrame() { timer = setTimeout(runFrame, Math.max(0, nextFrameAt - performance.now())); }
+function runFrame() {
+  const t = nextFrameAt;
+  tick(t);
+  if (!timer) return; // the frame stopped the engine
+  nextFrameAt = nextFrameTime(t);
+  if (nextFrameAt < performance.now() - 100) nextFrameAt = performance.now(); // fell behind (e.g. page was paused)
+  scheduleFrame();
+}
+const tempoLocked = () => S.audioSrc === 'tempo' && S.current && S.current.kind === 'effect' && byId[S.current.id].needs === 'audio';
+function nextFrameTime(t) {
+  if (!tempoLocked()) return t + 1000 / S.fps;
+  // Whole number of frames per beat, never faster than the update rate.
+  const period = 60000 / S.bpm, sub = period / Math.max(1, Math.floor(period / (1000 / S.fps)));
+  return tempo.t0 + (Math.floor((t - tempo.t0) / sub + 1e-6) + 1) * sub;
+}
+function tick(now = performance.now()) {
   tVirtual += (now - lastTick) / 1000 * S.speed;
   lastTick = now;
   if (!S.power || !S.current || S.current.kind !== 'effect') return;
   const e = byId[S.current.id];
-  if (e.needs === 'audio') updateAudio();
+  if (e.needs === 'audio') { updateAudio(now); if (audio.beat) urgent = true; }
   try {
     if (e.drive) e.drive(tVirtual, S.current.params, scratch);
     else sendColor(e.fn(tVirtual, S.current.params, scratch));
   } catch (err) { console.warn(err); }
+  if (!cmdQueue.length && !pendingColor) urgent = false; // nothing to send this frame: don't let it leak to a later one
 }
 
 async function runEffect(id, params) {
