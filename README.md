@@ -37,8 +37,9 @@ _Last updated 2026-09-30._
 2. **Strip-level brightness and speed** for built-in effects.
 3. **Strip setup** (Settings): LED count and wire order. Still need to find the real LED count. Tap *Set LED count*, then watch the "Red Tail" test run end to end.
 4. **Ride mode** (keeps the screen awake) and the **phone-lock hand-off** (switches the strip to a built-in effect when the phone locks).
-5. Stability fixes for disconnects and frozen strobes. Check whether the drop counter in the status pill keeps climbing.
-6. **Music** (phone mic) and **Motion** tabs: it's unknown whether Bluefy grants mic and motion access.
+5. **Fire 2 · Living flame** (Flow tab): runs a warm built-in effect that varies along the strip (#214 Orange flame by default; also #220, #233, #222) while the phone flickers the strip's brightness and gusts its flow speed. Depends on the new effect/brightness/speed commands above. If brightness doesn't work, the flame still moves but won't flicker.
+6. Stability fixes for disconnects and frozen strobes. Check whether the drop counter in the status pill keeps climbing.
+7. **Music** (phone mic) and **Motion** tabs: it's unknown whether Bluefy grants mic and motion access.
 
 ---
 
@@ -49,7 +50,7 @@ Agreed order (from "what can we take from LotusLamp X"):
 1. ~~Strip setup: LED count + wire order~~ (done, waiting for the test above)
 2. **Device-mic rhythm modes.** Use the controller's own microphone. 8 modes, run on the strip, keep working with the phone locked. Commands already decoded below ([next feature](#decoded-but-not-built-yet)). Build as a new section on the Music tab.
 3. **Carousel.** The strip cycles through up to 6 effects on its own (`AUTO_CAROUSEL`, cmd `0x16`). Payload not decoded yet. Starting point: `BlePackagingDevice.java` near the `AUTO_CAROUSEL` sender.
-4. **Custom effects stored on the strip (per-LED "Scene DIY").** Commands `START_SET_SCENE_DIY` (0x32), `SET_SCENE_DIY_COLOR` (0x33), `END_SET_SCENE_DIY` (0x34), `SET_POINT_COLOR` (0x58). This is the most work and gives the most: my own moving effects running with the phone locked.
+4. **Custom effects stored on the strip (per-LED "Scene DIY").** ⚠ LotusLamp X does *not* enable this for MELK-OA, so the firmware probably lacks it. Only worth a quick probe test. Format if tried: start `7E 32 lenHi lenLo sumLo sumHi FF FF EF`, colour packets `7E 33 R G B R G B idx` (2 LEDs each), end `7E 34 mode gradient speed FF FF FF EF`. Modes 0 static, 1 breathe, 2 strobe, 3/4 flow, 5/6 close/open, 7/8 chase, 9/10 stacking. Commands `START_SET_SCENE_DIY` (0x32), `SET_SCENE_DIY_COLOR` (0x33), `END_SET_SCENE_DIY` (0x34), `SET_POINT_COLOR` (0x58). This is the most work and gives the most: my own moving effects running with the phone locked.
 5. Small: read the strip's status notifications on connect so the UI matches the real state.
 
 Skip: timers, the built-in music player, groups, horn mode (not useful on a skateboard).
@@ -115,6 +116,7 @@ Things that look odd but are deliberate:
 - **Adaptive rate**: default 15 updates/s. Each unexpected disconnect lowers it by 2 (min 10). The status pill shows the drop count.
 - **Flash rate caps** (`maxRate`): every on/off phase must last at least 2 frames, otherwise strobes alias into a solid colour. The cap accounts for the Speed multiplier.
 - **Brightness**: phone-driven colours are dimmed by scaling RGB (squared curve). Built-in effects use the strip's brightness command. It's reset to 100 when leaving a built-in so the two don't stack.
+- **Fire 2 / effects with `start` + `drive`**: instead of streaming one colour, these start a built-in effect as the base (`start`) and then adjust strip brightness/speed every tick (`drive`). This is the only way to get variation along the strip: **LotusLamp X offers no per-LED Scene DIY for MELK-OA** (`LPHelper.isSupportedScenesDIY` lists only MELK-OD/OE/OF/OG/OH and a few others). Fire 1 · Flicker is the original whole-strip version.
 - **iPhone lock**: iOS freezes the page, so phone-driven effects stop. Two answers: *Ride mode* (NoSleep + black overlay that swallows pocket taps, hold the ring 1.5 s to exit) and the *lock hand-off* (on `visibilitychange`/`pagehide`, send the chosen built-in effect immediately, bypassing the pacing timer).
 - **Auto-reconnect** with backoff, then re-send the wake-up and the current state.
 - **Storage** (localStorage, per phone): `fps`, `bright`, `params`, `favs`, `fxStars`, `fxCat`, `hwSpeed`, `legacyFx`, `lockAction2`, `lockFx`, `pixels`, `wires`. The controller can't be read back (yet), so the LED count shown is "last set from this phone".

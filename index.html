@@ -456,9 +456,39 @@ const EFFECTS = [
   { id: 'breathe', group: 'flow', name: 'Breathe', desc: 'Slow fade in and out',
     params: { color: { type: 'color', v: '#22d3ee' }, period: { label: 'Breath (s)', min: 0.5, max: 10, step: 0.1, v: 3 }, floor: { label: 'Lowest', min: 0, max: 0.8, step: 0.05, v: 0.05 } },
     fn: (t, p) => scale(hexToRgb(p.color), p.floor + (1 - p.floor) * (0.5 - 0.5 * Math.cos(2 * Math.PI * t / p.period))) },
-  { id: 'fire', group: 'flow', name: 'Fire', desc: 'Flickering flames',
+  { id: 'fire', group: 'flow', name: 'Fire 1 · Flicker', desc: 'Whole strip flickers together',
     params: { heat: { label: 'Heat', min: 0, max: 1, step: 0.05, v: 0.6 } },
     fn: (t, p, st) => { st.n = (st.n || 0.5) * 0.7 + Math.random() * 0.3; const k = 0.35 + 0.65 * st.n; return [255 * k, (40 + 120 * p.heat * st.n) * k, 0]; } },
+  // Fire 2: the MELK-OA can't be driven LED by LED (LotusLamp X offers no Scene DIY for it), so the
+  // shades that differ along the strip come from a warm built-in effect, and the phone adds the
+  // life on top: fast flicker, dips and flare-ups on the strip's brightness, and gusts on its flow speed.
+  { id: 'fire2', group: 'flow', name: 'Fire 2 · Living flame', desc: 'Flames move along the strip and flicker',
+    params: {
+      flame: { type: 'select', label: 'Flame', v: 214, restart: true,
+        options: [[214, 'Orange flame'], [220, 'Red embers'], [233, 'Yellow-orange glow'], [222, 'Orange stacking']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 35 },
+      flicker: { label: 'Flicker', min: 0, max: 1, step: 0.05, v: 0.6 },
+      wind: { label: 'Wind', min: 0, max: 1, step: 0.05, v: 0.4 },
+    },
+    start: (p, st) => { sendCmd(CMD.mode(p.flame)); sendCmd(CMD.speed(p.flow)); st.flow = p.flow; st.nextGust = 2 + Math.random() * 3; },
+    drive: (t, p, st) => {
+      const r = Math.random;
+      st.n = (st.n ?? 0.7) * 0.55 + r() * 0.45;                       // fast flicker
+      const swell = 0.82 + 0.18 * Math.sin(t * 0.9) * Math.sin(t * 2.3 + 1); // slow rise and fall
+      if (r() < 0.035 * p.flicker) st.dip = 0.3 + r() * 0.3;            // gutter
+      if (r() < 0.02) st.flare = 0.25;                                  // flare-up
+      st.dip = (st.dip || 0) * 0.6; st.flare = (st.flare || 0) * 0.7;
+      const k = Math.min(1, swell * (1 - p.flicker * 0.6 * (1 - st.n)) * (1 - st.dip) + st.flare);
+      const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * k)));
+      if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
+      if (st.flow !== p.flow) { st.flow = p.flow; sendCmd(CMD.speed(p.flow)); st.nextGust = t + 2 + r() * 4; } // slider moved: at most one per frame
+      if (t >= st.nextGust) {
+        sendCmd(CMD.speed(Math.max(1, Math.min(100, Math.round(p.flow * (1 + p.wind * (r() * 1.2 - 0.6)))))));
+        st.nextGust = t + 2 + r() * 4;
+      }
+      const g = `rgb(${Math.round(255 * k)},${Math.round(90 * k)},0)`, d = `rgb(${Math.round(120 * k)},${Math.round(20 * k)},0)`;
+      document.getElementById('preview').style.background = `linear-gradient(90deg,${d},${g},${d},${g})`;
+    } },
   { id: 'ocean', group: 'flow', name: 'Ocean', desc: 'Rolling blue-green waves',
     params: {},
     fn: t => { const w = 0.5 + 0.5 * Math.sin(t * 0.9) * Math.sin(t * 0.37 + 1); return mix([0, 40, 180], [0, 200, 170], w); } },
@@ -532,7 +562,10 @@ function tick() {
   if (!S.power || !S.current || S.current.kind !== 'effect') return;
   const e = byId[S.current.id];
   if (e.needs === 'mic') readAudio();
-  try { sendColor(e.fn(tVirtual, S.current.params, scratch)); } catch (err) { console.warn(err); }
+  try {
+    if (e.drive) e.drive(tVirtual, S.current.params, scratch);
+    else sendColor(e.fn(tVirtual, S.current.params, scratch));
+  } catch (err) { console.warn(err); }
 }
 
 async function runEffect(id, params) {
@@ -543,6 +576,7 @@ async function runEffect(id, params) {
   leaveBuiltin();
   S.current = { kind: 'effect', id, params: params || paramsFor(e) };
   ensureOn();
+  if (e.start) e.start(S.current.params, scratch);
   startEngine();
   renderActive(); renderParams();
 }
@@ -571,7 +605,7 @@ function restoreOutput() {
   if (!S.current || !S.power) return;
   if (S.current.kind === 'solid') sendColor(hexToRgb(S.current.id));
   else if (S.current.kind === 'builtin') { sendCmd(CMD.mode(S.current.id)); S.hwBright = 100; applyHwBright(); }
-  else startEngine();
+  else { const e = byId[S.current.id]; if (e.start) e.start(S.current.params, scratch); startEngine(); }
 }
 function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPower(); } }
 function togglePower() {
@@ -595,7 +629,11 @@ function handOffToStrip() {
   stopEngine();
   pendingColor = null; cmdQueue.length = 0;
   clearTimeout(pumpTimer); pumpTimer = null;
-  rawWrite(hexToBytes(CMD.mode(S.lockMode))).catch(() => {});
+  if (byId[S.current.id].start) {
+    // The flame keeps moving on the strip; only the phone's flicker stops, so leave it at full level.
+    S.hwBright = Math.round(S.bright * 100);
+    rawWrite(hexToBytes(CMD.bright(S.hwBright))).catch(() => {});
+  } else rawWrite(hexToBytes(CMD.mode(S.lockMode))).catch(() => {});
 }
 const hexToBytes = hex => new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
 window.addEventListener('pagehide', handOffToStrip);
@@ -736,20 +774,26 @@ function renderParams() {
       html += `<div class="colors">` + p[k].map((c, i) => `<input type="color" data-k="${k}" data-i="${i}" value="${c}">`).join('') +
         `<button class="small" data-add="${k}">＋</button>${p[k].length > 2 ? `<button class="small" data-del="${k}">－</button>` : ''}</div>`;
     }
+    else if (spec.type === 'select') html += `<div class="slider"><label>${spec.label}</label><select data-k="${k}" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">${spec.options.map(([v, l]) => `<option value="${v}"${v == p[k] ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`;
     else html += `<div class="slider"><label>${spec.label}</label><input type="range" data-k="${k}" min="${spec.min}" max="${spec.max}" step="${spec.step}" value="${p[k]}"><span class="val">${fmt(p[k])}</span></div>`;
   }
   if (!Object.keys(e.params).length) html += '<div class="hint">No settings. Use Brightness and Speed above.</div>';
   box.innerHTML = html;
 }
 const fmt = v => (Math.round(v * 100) / 100).toString();
-document.getElementById('params').addEventListener('input', ev => {
-  const el = ev.target, k = el.dataset.k; if (!k || !S.current) return;
-  const p = S.current.params;
+function onParam(ev) {
+  const el = ev.target, k = el.dataset.k; if (!k || !S.current || S.current.kind !== 'effect') return;
+  if (el.tagName === 'SELECT' && ev.type === 'input') return; // selects are handled once, on change
+  const e = byId[S.current.id], p = S.current.params;
   if (el.dataset.i !== undefined) { p[k] = [...p[k]]; p[k][+el.dataset.i] = el.value; }
   else if (el.type === 'color') p[k] = el.value;
+  else if (el.tagName === 'SELECT') p[k] = +el.value;
   else { p[k] = parseFloat(el.value); el.nextElementSibling.textContent = fmt(p[k]); }
   S.params[S.current.id] = p; store('params', S.params);
-});
+  if (e.params[k].restart && e.start) e.start(p, scratch);
+}
+document.getElementById('params').addEventListener('input', onParam);
+document.getElementById('params').addEventListener('change', ev => { if (ev.target.tagName === 'SELECT') onParam(ev); });
 document.getElementById('params').addEventListener('click', ev => {
   const add = ev.target.dataset.add, del = ev.target.dataset.del; if (!add && !del) return;
   const p = S.current.params, k = add || del;
