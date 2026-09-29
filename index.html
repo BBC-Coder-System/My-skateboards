@@ -44,7 +44,7 @@
         <input type="color" id="colorPicker" value="#00f0ff" oninput="throttledUpdateColor()">
 
         <label>Dimming / Brightness Control</label>
-        <input type="range" id="brightness" min="0" max="255" value="255" oninput="throttledUpdateColor()">
+        <input type="range" id="brightness" min="1" max="255" value="255" oninput="throttledApplyBrightness()">
     </div>
 
     <!-- Hardware Effect Library & Custom Renamer -->
@@ -76,6 +76,7 @@
         let isSending = false;
         let pendingHex = null;
         let isMicActive = false, isMotionActive = false;
+        let currentModeType = "color"; // "color" or "effect"
         let audioCtx, analyser, micStream;
 
         const defaultModes = {
@@ -199,6 +200,7 @@
 
         function throttledUpdateColor() {
             stopInteractiveModes();
+            currentModeType = "color";
             updateColor();
         }
 
@@ -209,14 +211,11 @@
             let b = parseInt(hex.substr(5, 2), 16);
             const brightness = parseInt(document.getElementById('brightness').value) / 255;
 
-            // Direct RGB Hardware Scaling for True Dimming
+            // Scale static color by dimming slider
             r = Math.round(r * brightness);
             g = Math.round(g * brightness);
             b = Math.round(b * brightness);
 
-            // Step 1: Force exit hardware mode lock
-            sendHex("7e04030000000000ef"); 
-            // Step 2: Apply Scaled Static RGB
             setColor(r, g, b);
         }
 
@@ -230,18 +229,34 @@
 
         function applyMode() {
             stopInteractiveModes();
+            currentModeType = "effect";
             const modeHex = document.getElementById('modeSelect').value;
             const speed = parseInt(document.getElementById('speed').value);
             const hexSpeed = speed.toString(16).padStart(2, '0');
 
-            // Set Effect Mode
+            // Native Mode Trigger
             sendHex(`7e0503${modeHex}${hexSpeed}000000ef`);
+            
+            // Sync Brightness without changing direction
+            setTimeout(throttledApplyBrightness, 50);
+        }
+
+        function throttledApplyBrightness() {
+            const brightness = parseInt(document.getElementById('brightness').value);
+            const hexBright = brightness.toString(16).padStart(2, '0');
+
+            if (currentModeType === "effect") {
+                // Dedicated Hardware Mode Dimming Byte (Does NOT break direction or reset animation!)
+                sendHex(`7e0401${hexBright}00000000ef`);
+            } else {
+                updateColor();
+            }
         }
 
         function throttledApplySpeed() {
             const speed = parseInt(document.getElementById('speed').value);
             const hexSpeed = speed.toString(16).padStart(2, '0');
-            // Dedicated standalone speed packet (Prevents mode restart lag)
+            // Hardware Speed Byte
             sendHex(`7e0402${hexSpeed}00000000ef`);
         }
 
