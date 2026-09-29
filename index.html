@@ -305,13 +305,13 @@ function rawWrite(bytes) {
   return chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
 }
 function sendCmd(hex) { cmdQueue.push(hex); pump(); }
-function sendColor(rgb) {
+function colorHex(rgb) {
   const b = S.bright * S.bright; // perceptual curve: slider halfway looks about half as bright
   const out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
   document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
-  pendingColor = CMD.color(...out);
-  pump();
+  return CMD.color(...out);
 }
+function sendColor(rgb) { pendingColor = colorHex(rgb); pump(); }
 
 async function connect() {
   if (!navigator.bluetooth) { toast('No Bluetooth here. Open this page in Bluefy.'); return; }
@@ -380,7 +380,9 @@ const scale = (c, k) => c.map(x => x * k);
 const smooth = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
 const BLACK = [0, 0, 0];
 const fireFlow = p => Math.max(1, Math.min(100, Math.round(p.flow * S.speed)));
-const FLARES = [[255, 90, 0], [255, 120, 0], [255, 150, 10], [255, 175, 30], [255, 70, 0], [255, 200, 90]];
+// Flare peak colours: red-orange to orange only (no near-white, which read as a camera flash).
+const FLARES = [[255, 60, 0], [255, 80, 0], [255, 100, 0], [255, 120, 5], [240, 50, 0]];
+const EMBER = [150, 18, 0]; // dim glow each flare starts from and fades back to
 // Flicker, gutters and flare-ups on the strip's brightness, plus gusts on its flow speed.
 function fireLife(t, p, st, tint = [255, 90, 0]) {
   const r = Math.random;
@@ -516,22 +518,27 @@ const EFFECTS = [
     lockPackets: (p, st) => [CMD.mode(st.base || 205), CMD.speed(st.flow || fireFlow(p))],
     drive: (t, p, st) => {
       const now = performance.now(), r = Math.random;
-      if (st.flareEnd) {
-        if (now < st.flareEnd) return;                                   // hold the flash
-        st.flareEnd = 0;
+      const fl = st.flareOn;
+      if (fl) {
+        // Soft flare: glow up from a dim ember to the peak colour, then fade back down.
+        const x = (now - fl.start) / fl.dur;
+        if (x < 1) {
+          const e = x < 0.4 ? smooth(x / 0.4) : 1 - smooth((x - 0.4) / 0.6);
+          sendColor(mix(scale(EMBER, 0.6), scale(fl.c, fl.peak), e));
+          return;
+        }
+        st.flareOn = null;
         st.base = r() < p.yellow ? 208 : 205;                            // back to Red (or Yellow) marquee
         sendCmd(CMD.mode(st.base)); sendCmd(CMD.speed(st.flow));
         S.hwBright = -1;                                                 // make the flicker re-send brightness
       }
       if (p.flares > 0 && now >= st.nextFlare) {
-        const c = FLARES[Math.floor(r() * FLARES.length)];
-        pendingColor = null;                                             // drop a stale flicker packet
-        S.hwBright = Math.round(S.bright * 100);
-        sendCmd(CMD.color(...c)); sendCmd(CMD.bright(S.hwBright));
-        if (r() < 0.35) sendCmd(CMD.color(...FLARES[Math.floor(r() * FLARES.length)])); // double flicker
-        st.flareEnd = now + 120 + r() * 200;
-        st.nextFlare = st.flareEnd + (1200 + r() * 3800) / (0.25 + p.flares * 1.5);
-        document.getElementById('preview').style.background = `rgb(${c.join(',')})`;
+        // Strip brightness to full; the flare's level comes from the colour (sendColor applies the Brightness slider).
+        // Ember colour goes out before the brightness change, so the marquee never gets a bright blip.
+        pendingColor = null;
+        sendCmd(colorHex(scale(EMBER, 0.6))); sendCmd(CMD.bright(100)); S.hwBright = 100;
+        st.flareOn = { start: now, dur: 500 + r() * 500, c: FLARES[Math.floor(r() * FLARES.length)], peak: 0.45 + r() * 0.3 };
+        st.nextFlare = now + st.flareOn.dur + (1500 + r() * 4000) / (0.25 + p.flares * 1.5);
         return;
       }
       fireLife(t, p, st, st.base === 208 ? [255, 190, 0] : [255, 40, 0]);
