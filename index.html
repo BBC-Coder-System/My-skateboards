@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0b0d14">
 <title>Board Lights</title>
+<script src="vendor/NoSleep.min.js"></script>
 <style>
   :root { --bg:#0b0d14; --card:#151a26; --line:#262d3d; --text:#e2e8f0; --dim:#8a94a8; --accent:#22d3ee; --ok:#34d399; --bad:#f87171; --warn:#fbbf24; }
   * { box-sizing:border-box; -webkit-user-select:none; user-select:none; }
@@ -76,6 +77,13 @@
   nav button span { font-size:20px; }
   nav button.active { color:var(--accent); }
   .hidden { display:none !important; }
+  /* Ride mode: black screen that keeps the phone awake and ignores pocket taps */
+  #ride { position:fixed; inset:0; background:#000; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; touch-action:none; }
+  #ride .name { color:#333; font-size:15px; }
+  #ride .exit { color:#2a2a2a; font-size:12px; }
+  #rideRing { width:90px; height:90px; border-radius:50%; border:3px solid #1a1a1a; transition:border-color .2s; }
+  #rideRing.hold { border-color:#22d3ee; transition:border-color 1.5s linear; }
+  #btnRide { width:100%; margin-top:10px; background:#1f2a1f; color:var(--ok); font-size:15px; padding:14px; }
   #toast { position:fixed; left:50%; top:16px; transform:translateX(-50%); background:#1d2536; border:1px solid var(--line); padding:10px 16px; border-radius:12px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:10; max-width:90vw; }
   #toast.show { opacity:1; }
 </style>
@@ -94,9 +102,15 @@
     <div id="preview"></div>
     <div class="slider"><label>Brightness</label><input type="range" id="bright" min="8" max="100" value="100"><span class="val" id="brightVal">100%</span></div>
     <div class="slider" id="speedRow"><label>Speed</label><input type="range" id="speed" min="10" max="400" value="100"><span class="val" id="speedVal">1.0×</span></div>
+    <button id="btnRide" onclick="enterRide()">🛹 Ride mode: keep effects running</button>
   </div>
 
   <div id="favs"></div>
+  <div id="ride" class="hidden">
+    <div id="rideRing"></div>
+    <div class="name" id="rideName"></div>
+    <div class="exit">Hold the circle to exit</div>
+  </div>
 
   <section id="tab-colour">
     <div class="card">
@@ -148,10 +162,10 @@
       <div class="slider"><label>Update rate</label><input type="range" id="fps" min="8" max="30" value="15"><span class="val" id="fpsVal">15/s</span></div>
       <div class="hint">How many colour updates per second the app sends. Lower is more stable, higher is smoother. The app lowers it automatically if the strip keeps dropping the connection.</div>
       <div class="label" style="margin-top:12px">When the phone locks</div>
-      <div class="hint">iPhone pauses web pages when the screen locks, so custom effects freeze. Choose what the strip does then:</div>
+      <div class="hint">iPhone pauses web pages when the screen locks, so phone-driven effects stop. Use Ride mode to keep the screen on, or choose what the strip does if the phone locks anyway:</div>
       <select id="lockAction" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
-        <option value="keep">Keep the last colour</option>
         <option value="builtin">Switch to a built-in effect (keeps animating)</option>
+        <option value="keep">Keep the last colour</option>
       </select>
       <div class="slider" id="lockModeRow"><label>Built-in #</label><input type="range" id="lockMode" min="0" max="99" value="28"><span class="val" id="lockModeVal">28</span></div>
       <div class="row">
@@ -203,7 +217,7 @@ const S = {
   modeNames: load('modeNames', { 7: 'animation', 28: 'moves along strip' }),
   modeStars: load('modeStars', [28]),
   favs: load('favs', []),
-  lockAction: load('lockAction', 'keep'), lockMode: load('lockMode', 28),
+  lockAction: load('lockAction2', 'builtin'), lockMode: load('lockMode', 28),
 };
 
 /* ---------------- BLE link with coalescing writer ---------------- */
@@ -519,16 +533,58 @@ function renderPower() { document.getElementById('btnPower').className = S.power
 /* ---------------- phone lock / background ---------------- */
 let wakeLock = null;
 async function keepAwake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+
+// iOS gives a page only a moment before freezing it, so the hand-off goes out immediately,
+// skipping the pacing timer (a pending setTimeout would never fire once the page is frozen).
+let handedOff = false;
+function handOffToStrip() {
+  if (handedOff || !chr || !S.power || !S.current || S.current.kind !== 'effect' || S.lockAction !== 'builtin') return;
+  handedOff = true;
+  stopEngine();
+  pendingColor = null; cmdQueue.length = 0;
+  clearTimeout(pumpTimer); pumpTimer = null;
+  rawWrite(hexToBytes(CMD.mode(S.lockMode))).catch(() => {});
+}
+const hexToBytes = hex => new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
+window.addEventListener('pagehide', handOffToStrip);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    if (S.power && S.current && S.current.kind === 'effect' && S.lockAction === 'builtin') sendCmd(CMD.mode(S.lockMode));
+    handOffToStrip();
   } else {
+    handedOff = false;
     keepAwake();
     if (S.current && S.current.kind === 'effect' && S.power) { lastColorHex = ''; startEngine(); }
     if (device && !chr && !userDisconnect) reconnect();
   }
 });
 document.addEventListener('click', keepAwake, { once: true });
+
+/* ---------------- ride mode ---------------- */
+// NoSleep.js (vendored) keeps iOS from auto-locking by playing a tiny silent inline video.
+// It must be enabled directly inside a tap handler.
+let noSleep = null;
+function enterRide() {
+  try { if (!noSleep && window.NoSleep) noSleep = new NoSleep(); if (noSleep) noSleep.enable(); } catch (e) { console.warn(e); }
+  keepAwake();
+  const cur = S.current;
+  document.getElementById('rideName').textContent = !cur ? '' : cur.kind === 'effect' ? byId[cur.id].name : cur.kind === 'builtin' ? (S.modeNames[cur.id] || 'Built-in #' + cur.id) : 'Solid colour';
+  document.getElementById('ride').classList.remove('hidden');
+}
+function exitRide() {
+  try { if (noSleep) noSleep.disable(); } catch (e) {}
+  document.getElementById('ride').classList.add('hidden');
+}
+(function wireRide() {
+  const ride = document.getElementById('ride'), ring = document.getElementById('rideRing');
+  let holdT = null;
+  const stop = e => { e.preventDefault(); clearTimeout(holdT); ring.classList.remove('hold'); };
+  // Swallow every touch so pocket taps can't change anything. Only a 1.5s hold on the ring exits.
+  ['touchstart', 'touchmove', 'touchend', 'click', 'mousedown'].forEach(n => ride.addEventListener(n, e => e.preventDefault(), { passive: false }));
+  ring.addEventListener('touchstart', e => { e.preventDefault(); ring.classList.add('hold'); holdT = setTimeout(exitRide, 1500); }, { passive: false });
+  ring.addEventListener('mousedown', e => { ring.classList.add('hold'); holdT = setTimeout(exitRide, 1500); });
+  ['touchend', 'touchcancel'].forEach(n => ring.addEventListener(n, stop, { passive: false }));
+  ring.addEventListener('mouseup', stop);
+})();
 
 /* ---------------- UI rendering ---------------- */
 function tileHtml(e) { return `<button class="tile" data-eff="${e.id}"><div class="n">${e.name}</div><div class="d">${e.desc}</div></button>`; }
@@ -625,7 +681,7 @@ bindSlider('speed', v => { S.speed = v / 100; }, v => (v / 100).toFixed(1) + '×
 bindSlider('fps', v => { S.fps = v; store('fps', v); if (timer) startEngine(); }, v => v + '/s');
 bindSlider('hwSpeed', v => sendCmd(CMD.speed(v)), v => v);
 bindSlider('lockMode', v => { S.lockMode = v; store('lockMode', v); }, v => v);
-document.getElementById('lockAction').addEventListener('change', e => { S.lockAction = e.target.value; store('lockAction', S.lockAction); document.getElementById('lockModeRow').style.display = S.lockAction === 'builtin' ? '' : 'none'; });
+document.getElementById('lockAction').addEventListener('change', e => { S.lockAction = e.target.value; store('lockAction2', S.lockAction); document.getElementById('lockModeRow').style.display = S.lockAction === 'builtin' ? '' : 'none'; });
 (function initSettings() {
   const b = load('bright', 100); document.getElementById('bright').value = b; S.bright = b / 100; document.getElementById('brightVal').textContent = b + '%';
   document.getElementById('fps').value = S.fps; document.getElementById('fpsVal').textContent = S.fps + '/s';
