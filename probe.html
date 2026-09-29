@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Strip Protocol Finder</title>
+<style>
+  :root { --bg:#0b0d14; --card:#151a26; --line:#262d3d; --text:#e2e8f0; --dim:#8a94a8; --accent:#22d3ee; --ok:#34d399; --bad:#f87171; --warn:#fbbf24; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; -webkit-tap-highlight-color:transparent; }
+  main { max-width:480px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:4px 0 2px; color:var(--accent); }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .label { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin-bottom:8px; }
+  button { font:inherit; border:none; border-radius:12px; padding:14px; font-weight:700; font-size:15px; width:100%; cursor:pointer; color:#04111a; background:var(--accent); }
+  button:active { transform:scale(.97); }
+  button.ghost { background:#222a3a; color:var(--text); }
+  button.yes { background:var(--ok); }
+  button.no { background:var(--bad); }
+  button:disabled { opacity:.4; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row > * { flex:1; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:8px; }
+  .grid4 button { padding:12px 4px; font-size:13px; }
+  #status { font-size:13px; color:var(--warn); margin-bottom:10px; }
+  #status.on { color:var(--ok); }
+  .step { font-size:12px; color:var(--dim); }
+  .q { font-size:18px; font-weight:700; margin:6px 0 4px; }
+  .hint { font-size:13px; color:var(--dim); margin-bottom:6px; }
+  code, .mono { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--accent); word-break:break-all; }
+  .progress { height:6px; background:#222a3a; border-radius:3px; overflow:hidden; margin:8px 0 2px; }
+  .progress > div { height:100%; background:var(--accent); width:0; transition:width .3s; }
+  #log { background:#000; border-radius:10px; padding:8px; height:120px; overflow-y:auto; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#9ca3af; }
+  #results { white-space:pre-wrap; font-family:ui-monospace,Menlo,monospace; font-size:11px; background:#000; border-radius:10px; padding:8px; max-height:220px; overflow:auto; color:var(--ok); }
+  .modeBig { font-size:34px; font-weight:800; font-family:ui-monospace,Menlo,monospace; text-align:center; color:var(--accent); }
+  input[type=text] { width:100%; background:#000; border:1px solid var(--line); border-radius:10px; color:var(--text); padding:10px; font-size:14px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Strip Protocol Finder</h1>
+  <div class="sub">Tap Connect, then answer what you see on the strip. You don't need to know any hex.</div>
+
+  <div class="card">
+    <div id="status">Not connected</div>
+    <button id="btnConnect" onclick="connect()">Connect to strip</button>
+    <div class="hint" style="margin-top:8px">Close the Lotus Lantern app first. The strip only allows one connection at a time.</div>
+  </div>
+
+  <!-- Guided wizard -->
+  <div class="card" id="wizard">
+    <div class="label">Guided test</div>
+    <div class="progress"><div id="bar"></div></div>
+    <div class="step" id="stepInfo">Connect to start</div>
+    <div class="q" id="question">—</div>
+    <div class="hint" id="hint"></div>
+    <div class="mono" id="sentPacket"></div>
+    <div id="answers"></div>
+    <div class="row">
+      <button class="ghost" onclick="resend()">Send again</button>
+      <button class="ghost" onclick="skipTest()">Skip test</button>
+    </div>
+  </div>
+
+  <!-- Built-in mode explorer -->
+  <div class="card">
+    <div class="label">Built-in effect explorer (after the guided test)</div>
+    <div class="hint">Steps through the strip's built-in effects. When one looks good, especially one that <b>moves along</b> the strip, give it a short name and save it.</div>
+    <div class="modeBig" id="modeNum">#0</div>
+    <div class="grid4">
+      <button class="ghost" onclick="stepMode(-1)">◀ Prev</button>
+      <button class="ghost" onclick="stepMode(0)">Replay</button>
+      <button class="ghost" onclick="stepMode(1)">Next ▶</button>
+      <button class="ghost" onclick="stepMode(10)">+10</button>
+    </div>
+    <div class="row">
+      <input type="text" id="modeName" placeholder="e.g. rainbow chase, red blink…">
+    </div>
+    <div class="row">
+      <button onclick="saveMode()">Save this effect</button>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="card">
+    <div class="label">Results: send these to Claude</div>
+    <div id="results">(none yet)</div>
+    <div class="row">
+      <button onclick="copyResults()">Copy results</button>
+      <button class="ghost" onclick="resetAll()">Reset</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">Log</div>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+const SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb';
+const CHAR    = '0000fff3-0000-1000-8000-00805f9b34fb';
+const ALT_SERVICES = ['0000ffe0-0000-1000-8000-00805f9b34fb', '0000ffd0-0000-1000-8000-00805f9b34fb'];
+
+let device = null, chr = null;
+let results = { device: null, tests: {}, modes: [] };
+
+// ---------- storage (best effort) ----------
+function save() { try { localStorage.setItem('probeResults', JSON.stringify(results)); } catch (e) {} renderResults(); }
+try { const s = localStorage.getItem('probeResults'); if (s) results = JSON.parse(s); } catch (e) {}
+
+// ---------- logging ----------
+function log(msg) {
+  const l = document.getElementById('log');
+  const d = document.createElement('div');
+  d.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  l.appendChild(d); l.scrollTop = l.scrollHeight;
+}
+
+// ---------- BLE with a write queue (Web Bluetooth rejects overlapping writes) ----------
+let queue = Promise.resolve();
+function hexToBytes(h) { h = h.replace(/\s+/g, ''); return new Uint8Array(h.match(/.{2}/g).map(b => parseInt(b, 16))); }
+function write(hex) {
+  const bytes = hexToBytes(hex);
+  queue = queue.then(async () => {
+    if (!chr) throw new Error('not connected');
+    if (chr.properties.writeWithoutResponse) await chr.writeValueWithoutResponse(bytes);
+    else await chr.writeValue(bytes);
+  }).catch(e => log('write failed: ' + e.message));
+  return queue;
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+async function connect() {
+  try {
+    log('Opening device picker…');
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [SERVICE, ...ALT_SERVICES] });
+    device.addEventListener('gattserverdisconnected', () => { chr = null; setStatus(false); log('Disconnected'); });
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(SERVICE);
+    try { chr = await svc.getCharacteristic(CHAR); }
+    catch (e) { chr = (await svc.getCharacteristics()).find(c => c.properties.write || c.properties.writeWithoutResponse); }
+    results.device = { name: device.name || '(unnamed)', char: chr.uuid.slice(4, 8), writeWithoutResponse: !!chr.properties.writeWithoutResponse };
+    save();
+    setStatus(true);
+    log('Connected to ' + results.device.name + ' via ' + results.device.char);
+    startWizard();
+  } catch (e) { log('Connect error: ' + e.message); setStatus(false); }
+}
+function setStatus(on) {
+  const s = document.getElementById('status');
+  s.textContent = on ? 'Connected: ' + (device && device.name || 'strip') : 'Not connected';
+  s.className = on ? 'on' : '';
+}
+
+// ---------- Guided tests ----------
+// Each test: a question plus candidate packet variants. We try variants one at a time until the user says yes.
+// "answers" customises the buttons. Default is Yes/No.
+const MELK_LOGIN = ['7e0783', '7e0404'];
+const TESTS = [
+  { id: 'off', q: 'Did the strip turn OFF?', hint: 'We send an "off" command.',
+    variants: ['7e0404000000ff00ef', '7e0004000000ff00ef', '7e04040000000000ef'] },
+  { id: 'on', q: 'Did the strip turn back ON?',
+    variants: ['7e0404f00001ff00ef', '7e0004f00001ff00ef', '7e0404010001ff00ef'] },
+  { id: 'login', q: 'Now send the MELK "wake-up" sequence. Tap Yes to continue.', hint: 'MELK controllers may ignore colour until they get this. You may not see any change.',
+    run: async () => { for (const p of MELK_LOGIN) { await write(p); await wait(300); } return MELK_LOGIN.join(' + '); },
+    answers: [['Continue', 'yes']] },
+  { id: 'red', q: 'Is the whole strip now solid RED?', hint: 'If it shows a different colour, tap that colour.',
+    variants: ['7e070503ff000010ef', '7e000503ff000000ef', '7e070503ff000000ef', '7e000503ff000010ef'],
+    answers: [['Red ✓', 'yes'], ['Green', 'green'], ['Blue', 'blue'], ['No change', 'no']] },
+  { id: 'green', q: 'What colour is it now?', hint: 'We asked for GREEN.', usesWinnerOf: 'red', rgb: [0, 255, 0],
+    answers: [['Green ✓', 'yes'], ['Red', 'red'], ['Blue', 'blue'], ['No change', 'no']] },
+  { id: 'blue', q: 'What colour is it now?', hint: 'We asked for BLUE.', usesWinnerOf: 'red', rgb: [0, 0, 255],
+    answers: [['Blue ✓', 'yes'], ['Red', 'red'], ['Green', 'green'], ['No change', 'no']] },
+  { id: 'dim', q: 'Did it get much DIMMER?', hint: 'We asked for 10% brightness.',
+    variants: ['7e04010a01ffff00ef', '7e04010affffff00ef', '7e00010a00000000ef'],
+    after: () => write('7e04016401ffff00ef') },
+  { id: 'effect', q: 'Is the strip now ANIMATING (changing by itself)?', hint: 'Starting a built-in effect.',
+    variants: ['7e05038703ffff00ef', '7e05038780000000ef', '7e05038003ffff00ef'] },
+  { id: 'speed', q: 'Did the animation get much FASTER?', hint: 'We set effect speed to maximum.',
+    variants: ['7e040264ffffff00ef', '7e04020affffff00ef'] },
+  { id: 'moving', q: 'Does the animation MOVE ALONG the strip (like a chase or flow)?', hint: 'Or does the whole strip change colour at once? Watch for a few seconds.',
+    run: async () => { await write('7e05039c03ffff00ef'); return '7e05039c03ffff00ef'; },
+    answers: [['Moves along', 'yes'], ['Whole strip at once', 'no']] },
+  { id: 'stream', q: 'Did the colour flow SMOOTHLY through the rainbow?', hint: 'The phone now sends about 20 colours per second for 5 seconds. This is how custom effects will work.',
+    run: () => streamRainbow(20, 5000),
+    answers: [['Smooth', 'yes'], ['Jerky / laggy', 'jerky'], ['Stuck / froze', 'no']] },
+  { id: 'streamFast', q: 'At about 40 colours per second, is it still smooth?',
+    run: () => streamRainbow(40, 5000),
+    answers: [['Smooth', 'yes'], ['Jerky / laggy', 'jerky'], ['Stuck / froze', 'no']] },
+];
+
+let ti = 0, vi = 0, lastPacket = '';
+
+function colorPacket(template, [r, g, b]) {
+  // Swap the RGB bytes (positions 4-6 of the winning red packet) for a new colour.
+  const bytes = template.match(/.{2}/g);
+  bytes[4] = r.toString(16).padStart(2, '0'); bytes[5] = g.toString(16).padStart(2, '0'); bytes[6] = b.toString(16).padStart(2, '0');
+  return bytes.join('');
+}
+function colorTemplate() { const w = results.tests.red; return (w && w.packet) || '7e070503ff000010ef'; }
+
+async function streamRainbow(fps, ms) {
+  const tpl = colorTemplate(), start = Date.now();
+  let n = 0;
+  while (Date.now() - start < ms && chr) {
+    const h = ((Date.now() - start) / ms) * 360;
+    await write(colorPacket(tpl, hsv(h)));
+    n++;
+    await wait(1000 / fps);
+  }
+  const real = (n / (ms / 1000)).toFixed(1);
+  log('Streamed ' + n + ' packets (' + real + '/s actual)');
+  return 'stream ' + fps + '/s target, ' + real + '/s actual';
+}
+function hsv(h) {
+  const f = n => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - Math.max(0, Math.min(k, 4 - k, 1)))); };
+  return [f(5), f(3), f(1)];
+}
+
+function startWizard() { ti = TESTS.findIndex(t => !results.tests[t.id]); if (ti < 0) ti = TESTS.length; vi = 0; runCurrent(); }
+
+async function runCurrent() {
+  const bar = document.getElementById('bar');
+  bar.style.width = (100 * ti / TESTS.length) + '%';
+  if (ti >= TESTS.length) {
+    document.getElementById('stepInfo').textContent = 'All tests done';
+    document.getElementById('question').textContent = '🎉 Done! Tap "Copy results" and send them to Claude.';
+    document.getElementById('hint').textContent = 'You can also use the effect explorer below to name built-in effects.';
+    document.getElementById('answers').innerHTML = '';
+    document.getElementById('sentPacket').textContent = '';
+    return;
+  }
+  const t = TESTS[ti];
+  document.getElementById('stepInfo').textContent = 'Test ' + (ti + 1) + ' of ' + TESTS.length + (t.variants ? ' · try ' + (vi + 1) + ' of ' + t.variants.length : '');
+  document.getElementById('question').textContent = t.q;
+  document.getElementById('hint').textContent = t.hint || '';
+  renderAnswers(t);
+  await send();
+}
+
+async function send() {
+  const t = TESTS[ti];
+  if (!chr) { log('Connect first'); return; }
+  if (t.run) lastPacket = await t.run();
+  else {
+    lastPacket = t.usesWinnerOf ? colorPacket(colorTemplate(), t.rgb) : t.variants[vi];
+    await write(lastPacket);
+  }
+  document.getElementById('sentPacket').textContent = 'sent: ' + lastPacket;
+  log('TX ' + lastPacket);
+}
+function resend() { if (ti < TESTS.length) send(); }
+
+function renderAnswers(t) {
+  const a = t.answers || [['Yes', 'yes'], ['No', 'no']];
+  const box = document.getElementById('answers');
+  box.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = a.length > 2 ? 'grid4' : 'row';
+  a.forEach(([label, val]) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.className = val === 'yes' ? 'yes' : (val === 'no' ? 'no' : 'ghost');
+    b.onclick = () => answer(val);
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+}
+
+async function answer(val) {
+  const t = TESTS[ti];
+  if (val === 'no' && t.variants && vi < t.variants.length - 1) { vi++; return runCurrent(); }
+  results.tests[t.id] = { answer: val, packet: lastPacket, variantIndex: t.variants ? vi : null };
+  save();
+  if (t.after) await t.after();
+  ti++; vi = 0; runCurrent();
+}
+function skipTest() { if (ti >= TESTS.length) return; results.tests[TESTS[ti].id] = { answer: 'skipped' }; save(); ti++; vi = 0; runCurrent(); }
+
+// ---------- Built-in mode explorer ----------
+let mode = 0;
+function modePacket(m) {
+  // Prefer the effect variant that worked in the guided test.
+  const e = results.tests.effect;
+  const tpl = (e && e.answer === 'yes' && e.packet) || '7e05038703ffff00ef';
+  const b = tpl.match(/.{2}/g);
+  b[3] = (0x80 + m).toString(16).padStart(2, '0');
+  return b.join('');
+}
+async function stepMode(d) {
+  mode = Math.max(0, Math.min(127, mode + d));
+  document.getElementById('modeNum').textContent = '#' + mode;
+  const p = modePacket(mode);
+  await write(p); log('mode #' + mode + ' → ' + p);
+}
+function saveMode() {
+  const name = document.getElementById('modeName').value.trim() || '(unnamed)';
+  results.modes.push({ mode, byte: '0x' + (0x80 + mode).toString(16), name });
+  document.getElementById('modeName').value = '';
+  save(); log('saved mode #' + mode + ' as ' + name);
+}
+
+// ---------- Results ----------
+function renderResults() {
+  const has = results.device || Object.keys(results.tests).length || results.modes.length;
+  document.getElementById('results').textContent = has ? JSON.stringify(results, null, 1) : '(none yet)';
+}
+async function copyResults() {
+  const txt = JSON.stringify(results);
+  try { await navigator.clipboard.writeText(txt); log('Copied to clipboard'); }
+  catch (e) {
+    // Fallback for browsers without clipboard permission
+    const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); log('Copied'); } catch (e2) { log('Copy failed. Screenshot the results instead.'); }
+    ta.remove();
+  }
+}
+function resetAll() { if (!confirm('Clear all results?')) return; results = { device: results.device, tests: {}, modes: [] }; save(); startWizard(); }
+
+renderResults();
+if (!navigator.bluetooth) { document.getElementById('status').textContent = 'This browser has no Bluetooth. Open this page in Bluefy.'; }
+</script>
+</body>
+</html>
