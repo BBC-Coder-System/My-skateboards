@@ -3,109 +3,194 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Skateboard Pro Controller</title>
+    <title>Skateboard Ultimate LED Controller</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0e0e10; color: #fff; padding: 20px; max-width: 480px; margin: 0 auto; text-align: center; }
-        h1 { font-size: 22px; margin-bottom: 5px; color: #00f0ff; text-transform: uppercase; letter-spacing: 1px; }
-        .card { background: #18181c; border-radius: 16px; padding: 18px; margin-bottom: 16px; border: 1px solid #282830; }
-        button { padding: 14px 20px; font-size: 16px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-connect { background: #007bff; color: white; width: 100%; box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
-        .btn-on { background: #34c759; color: white; width: 48%; }
-        .btn-off { background: #ff3b30; color: white; width: 48%; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0b0c10; color: #fff; padding: 15px; max-width: 500px; margin: 0 auto; text-align: center; }
+        h1 { font-size: 20px; color: #00f0ff; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .card { background: #1f2833; border-radius: 14px; padding: 16px; margin-bottom: 14px; border: 1px solid #2f3e46; }
+        button { padding: 12px 18px; font-size: 15px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-connect { background: #45a29e; color: #0b0c10; width: 100%; box-shadow: 0 4px 10px rgba(69,162,158,0.3); font-size: 16px; }
+        .btn-on { background: #2ecc71; color: white; width: 48%; }
+        .btn-off { background: #e74c3c; color: white; width: 48%; }
+        .btn-feature { background: #9b59b6; color: white; width: 100%; margin-top: 8px; }
+        .btn-feature.active { background: #e67e22; }
         .power-grid { display: flex; justify-content: space-between; margin-top: 10px; }
-        label { display: block; text-align: left; font-size: 13px; color: #aaa; margin: 12px 0 4px 0; font-weight: 600; text-transform: uppercase; }
-        input[type="range"] { width: 100%; height: 8px; border-radius: 4px; background: #333; outline: none; }
-        input[type="color"] { width: 100%; height: 50px; border: none; border-radius: 8px; background: none; cursor: pointer; }
-        select { width: 100%; padding: 12px; background: #22222a; color: #fff; border: 1px solid #444; border-radius: 10px; font-size: 15px; }
-        #status { font-size: 13px; color: #888; margin-top: 8px; font-weight: 600; }
+        label { display: block; text-align: left; font-size: 12px; color: #c5c6c7; margin: 10px 0 4px 0; font-weight: 600; text-transform: uppercase; }
+        input[type="range"] { width: 100%; height: 8px; border-radius: 4px; background: #0b0c10; outline: none; }
+        input[type="color"] { width: 100%; height: 45px; border: none; border-radius: 8px; background: none; cursor: pointer; }
+        select, input[type="text"] { width: 100%; padding: 10px; background: #0b0c10; color: #fff; border: 1px solid #45a29e; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+        .edit-group { display: flex; gap: 8px; margin-top: 8px; }
+        #status { font-size: 12px; color: #66fcf1; margin-top: 6px; font-weight: 600; }
+        .sensor-data { font-size: 11px; color: #f39c12; margin-top: 4px; }
     </style>
 </head>
 <body>
 
-    <h1>🛹 Skateboard Pro</h1>
+    <h1>🛹 Skateboard Pro Ultimate</h1>
     <div id="status">Status: Disconnected</div>
 
-    <div class="card" style="margin-top: 15px;">
-        <button class="btn-connect" onclick="connectBLE()">Connect to Board</button>
+    <!-- Power & Connection -->
+    <div class="card" style="margin-top: 10px;">
+        <button class="btn-connect" onclick="connectBLE()">Connect to Skateboard</button>
         <div class="power-grid">
             <button class="btn-on" onclick="powerOn()">Power ON</button>
             <button class="btn-off" onclick="powerOff()">Power OFF</button>
         </div>
     </div>
 
-    <!-- Solid Color & Brightness -->
+    <!-- Color & Dimming / Brightness -->
     <div class="card">
-        <label>Custom Color Wheel</label>
-        <input type="color" id="colorPicker" value="#00f0ff" oninput="updateColor()">
+        <label>Custom Color Picker</label>
+        <input type="color" id="colorPicker" value="#00f0ff" oninput="throttledUpdateColor()">
 
-        <label>Brightness</label>
-        <input type="range" id="brightness" min="0" max="255" value="255" oninput="updateColor()">
+        <label>Dimming / Brightness Control</label>
+        <input type="range" id="brightness" min="0" max="255" value="255" oninput="throttledUpdateColor()">
     </div>
 
-    <!-- Dynamic Modes & Speed -->
+    <!-- Hardware Effect Library & Custom Renamer -->
     <div class="card">
-        <label>Verified Macro Modes</label>
+        <label>Hardware Effect Selector</label>
         <select id="modeSelect" onchange="applyMode()">
-            <option value="87">7 Color Smooth Cross-Fade</option>
-            <option value="88">7 Color Strobe / Flash</option>
-            <option value="89">7 Color Fast Jump</option>
-            <option value="8a">3 Color Jump (RGB)</option>
-            <option value="8b">Single Color Flash Cycle</option>
-            <option value="80">Red Fade Cycle</option>
-            <option value="81">Green Fade Cycle</option>
-            <option value="82">Blue Fade Cycle</option>
+            <!-- Dynamic list generated from JavaScript -->
         </select>
 
-        <label>Effect Speed</label>
-        <input type="range" id="speed" min="1" max="255" value="128" onchange="applyMode()">
+        <div class="edit-group">
+            <input type="text" id="renameInput" placeholder="New name for selected effect">
+            <button style="background:#3498db; color:white; width: 30%;" onclick="saveCustomName()">Rename</button>
+        </div>
+
+        <label>Effect Speed (Fast Responsive)</label>
+        <input type="range" id="speed" min="1" max="255" value="128" oninput="throttledApplyMode()">
+    </div>
+
+    <!-- Interactive Features: Music Sync & Accelerometer -->
+    <div class="card">
+        <label>Interactive Smart Modes</label>
+        <button id="micBtn" class="btn-feature" onclick="toggleMicSync()">🎵 Phone Mic Beat Sync</button>
+        <button id="motionBtn" class="btn-feature" onclick="toggleMotionSync()">🏎️ Ride Speed / Accelerometer Mode</button>
+        <div id="sensorDisplay" class="sensor-data"></div>
     </div>
 
     <script>
         let bleDevice, bleCharacteristic;
+        let lastSendTime = 0;
+        let isMicActive = false, isMotionActive = false;
+        let audioCtx, analyser, micStream;
+        let motionThreshold = 0;
 
+        // Default Full Hardware Mode Table (0x80 - 0x9B)
+        const defaultModes = {
+            "80": "Red Breathing / Pulse",
+            "81": "Green Breathing / Pulse",
+            "82": "Blue Breathing / Pulse",
+            "83": "Yellow Breathing / Pulse",
+            "84": "Cyan Breathing / Pulse",
+            "85": "Purple Breathing / Pulse",
+            "86": "White Breathing / Pulse",
+            "87": "7 Color Cross-Fade",
+            "88": "7 Color Strobe",
+            "89": "7 Color Fast Jump",
+            "8a": "3 Color Jump (RGB)",
+            "8b": "Single Color Strobe Flash",
+            "8c": "Red Flash Jump",
+            "8d": "Green Flash Jump",
+            "8e": "Blue Flash Jump",
+            "8f": "Yellow Flash Jump",
+            "90": "Cyan Flash Jump",
+            "91": "Purple Flash Jump",
+            "92": "White Flash Jump",
+            "93": "7 Color Auto Cycle",
+            "94": "3 Color Gradual Change",
+            "95": "7 Color Gradual Change",
+            "96": "Red Strobe",
+            "97": "Green Strobe",
+            "98": "Blue Strobe",
+            "99": "Yellow Strobe",
+            "9a": "Cyan Strobe",
+            "9b": "White Strobe"
+        };
+
+        // Load custom renamed labels from Phone LocalStorage
+        let customModes = JSON.parse(localStorage.getItem('board_effect_names')) || defaultModes;
+
+        function populateModeDropdown() {
+            const select = document.getElementById('modeSelect');
+            select.innerHTML = '';
+            for (let hex in customModes) {
+                let opt = document.createElement('option');
+                opt.value = hex;
+                opt.innerText = `[0x${hex}] ${customModes[hex]}`;
+                select.appendChild(opt);
+            }
+        }
+        populateModeDropdown();
+
+        function saveCustomName() {
+            const select = document.getElementById('modeSelect');
+            const hex = select.value;
+            const newName = document.getElementById('renameInput').value.trim();
+            if (newName) {
+                customModes[hex] = newName;
+                localStorage.setItem('board_effect_names', JSON.stringify(customModes));
+                populateModeDropdown();
+                select.value = hex;
+                document.getElementById('renameInput').value = '';
+                alert(`Effect 0x${hex} renamed to: "${newName}"`);
+            }
+        }
+
+        // Bluetooth Connection
         async function connectBLE() {
             const statusDiv = document.getElementById('status');
             try {
-                statusDiv.innerText = "Searching...";
+                statusDiv.innerText = "Searching for skateboard...";
                 bleDevice = await navigator.bluetooth.requestDevice({
                     acceptAllDevices: true,
                     optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
                 });
 
-                statusDiv.innerText = "Connecting...";
+                statusDiv.innerText = "Connecting GATT...";
                 const server = await bleDevice.gatt.connect();
 
-                statusDiv.innerText = "Accessing Services...";
+                statusDiv.innerText = "Accessing Lights...";
                 const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
                 bleCharacteristic = await service.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
 
-                statusDiv.innerText = "CONNECTED: " + (bleDevice.name || "Skateboard Lights");
-                statusDiv.style.color = "#00f0ff";
+                statusDiv.innerText = "CONNECTED: " + (bleDevice.name || "Skateboard LED");
+                statusDiv.style.color = "#2ecc71";
             } catch (error) {
-                statusDiv.innerText = "Error: " + (error.message || "Failed to pair");
-                statusDiv.style.color = "#ff3b30";
+                statusDiv.innerText = "Error: " + (error.message || "Failed to connect");
+                statusDiv.style.color = "#e74c3c";
             }
         }
 
+        // Hardware Fast Packet Sender with Rate Limiting (50ms)
         async function sendHex(hexString) {
             if (!bleCharacteristic) return;
+            const now = Date.now();
+            if (now - lastSendTime < 40) return; // Prevent flooding BLE stack
+            lastSendTime = now;
+
             try {
                 const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
                 await bleCharacteristic.writeValue(bytes);
             } catch (e) {
-                console.error("Send failed", e);
+                console.error("BLE Send Error:", e);
             }
         }
 
         function powerOn() {
-            // Hardware Power ON Packet
             sendHex("7e0004f00001ff00ef");
             setTimeout(updateColor, 100);
         }
 
         function powerOff() {
-            // Hardware Power OFF Packet
             sendHex("7e0004000000ff00ef");
+        }
+
+        function throttledUpdateColor() {
+            stopInteractiveModes();
+            updateColor();
         }
 
         function updateColor() {
@@ -119,13 +204,17 @@
         }
 
         function setColor(r, g, b, bright = 255) {
-            const hexR = r.toString(16).padStart(2, '0');
-            const hexG = g.toString(16).padStart(2, '0');
-            const hexB = b.toString(16).padStart(2, '0');
-            const hexBright = bright.toString(16).padStart(2, '0');
+            const hexR = Math.min(255, Math.max(0, r)).toString(16).padStart(2, '0');
+            const hexG = Math.min(255, Math.max(0, g)).toString(16).padStart(2, '0');
+            const hexB = Math.min(255, Math.max(0, b)).toString(16).padStart(2, '0');
+            const hexBright = Math.min(255, Math.max(0, bright)).toString(16).padStart(2, '0');
             
-            // Format: 7e 07 05 03 R G B Brightness 00 ef
             sendHex(`7e070503${hexR}${hexG}${hexB}${hexBright}00ef`);
+        }
+
+        function throttledApplyMode() {
+            stopInteractiveModes();
+            applyMode();
         }
 
         function applyMode() {
@@ -133,8 +222,122 @@
             const speed = parseInt(document.getElementById('speed').value);
             const hexSpeed = speed.toString(16).padStart(2, '0');
 
-            // Format: 7e 05 03 [Mode] [Speed] 00 00 00 ef
             sendHex(`7e0503${modeHex}${hexSpeed}000000ef`);
+        }
+
+        // --- INTERACTIVE FEATURE 1: PHONE MIC MUSIC SYNC ---
+        async function toggleMicSync() {
+            const btn = document.getElementById('micBtn');
+            if (isMicActive) {
+                stopInteractiveModes();
+                return;
+            }
+            stopInteractiveModes();
+
+            try {
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioCtx.createAnalyser();
+                const source = audioCtx.createMediaStreamSource(micStream);
+                source.connect(analyser);
+                analyser.fftSize = 64;
+
+                isMicActive = true;
+                btn.classList.add('active');
+                btn.innerText = "🛑 Stop Music Sync";
+                processAudioBeat();
+            } catch (err) {
+                alert("Microphone permission denied or unavailable: " + err);
+            }
+        }
+
+        function processAudioBeat() {
+            if (!isMicActive) return;
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+
+            // Focus on bass frequencies (bins 0-3)
+            let bassSum = 0;
+            for (let i = 0; i < 4; i++) bassSum += dataArray[i];
+            let bassAvg = bassSum / 4;
+
+            // Scale brightness to audio pulse
+            let dimLevel = parseInt(document.getElementById('brightness').value);
+            let dynamicBright = Math.floor((bassAvg / 255) * dimLevel);
+
+            if (bassAvg > 100) {
+                // High bass hit: bright pulse
+                setColor(0, 240, 255, dynamicBright);
+            } else {
+                // Low volume: dim ambient glow
+                setColor(10, 20, 40, Math.floor(dynamicBright * 0.2));
+            }
+
+            requestAnimationFrame(processAudioBeat);
+        }
+
+        // --- INTERACTIVE FEATURE 2: MOTION / SPEED REACTIVE MODE ---
+        function toggleMotionSync() {
+            const btn = document.getElementById('motionBtn');
+            if (isMotionActive) {
+                stopInteractiveModes();
+                return;
+            }
+            stopInteractiveModes();
+
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission().then(response => {
+                    if (response === 'granted') startMotionSensor();
+                });
+            } else {
+                startMotionSensor();
+            }
+        }
+
+        function startMotionSensor() {
+            isMotionActive = true;
+            const btn = document.getElementById('motionBtn');
+            btn.classList.add('active');
+            btn.innerText = "🛑 Stop Motion Mode";
+
+            window.addEventListener('devicemotion', handleMotion);
+        }
+
+        function handleMotion(event) {
+            if (!isMotionActive) return;
+            let acc = event.accelerationIncludingGravity;
+            if (!acc) return;
+
+            let totalAcc = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+            document.getElementById('sensorDisplay').innerText = `G-Force Vector: ${totalAcc.toFixed(2)} m/s²`;
+
+            // Adjust speed or color dynamically according to movement
+            let dimLevel = parseInt(document.getElementById('brightness').value);
+            if (totalAcc > 15) {
+                // High speed / heavy carving: Intense Red Pulse
+                setColor(255, 0, 50, dimLevel);
+            } else if (totalAcc > 11) {
+                // Moderate motion: Cyan Cruise
+                setColor(0, 240, 255, Math.floor(dimLevel * 0.8));
+            } else {
+                // Idle / stationary: Low Blue Ambient
+                setColor(0, 50, 200, Math.floor(dimLevel * 0.3));
+            }
+        }
+
+        function stopInteractiveModes() {
+            isMicActive = false;
+            isMotionActive = false;
+
+            if (micStream) micStream.getTracks().forEach(track => track.stop());
+            if (audioCtx) audioCtx.close();
+            window.removeEventListener('devicemotion', handleMotion);
+
+            document.getElementById('micBtn').classList.remove('active');
+            document.getElementById('micBtn').innerText = "🎵 Phone Mic Beat Sync";
+            document.getElementById('motionBtn').classList.remove('active');
+            document.getElementById('motionBtn').innerText = "🏎️ Ride Speed / Accelerometer Mode";
+            document.getElementById('sensorDisplay').innerText = '';
         }
     </script>
 </body>
