@@ -368,7 +368,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 queue';
+const APP_BUILD = '2026-10-01 review1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -460,6 +460,7 @@ function pump() {
   const nowP = performance.now(), slowOk = nowP - lastSlowAt >= S.slowGap;
   let hex = null;
   if (cmdQueue.length) { hex = cmdQueue.shift(); lastColorHex = ''; }
+  else if (slot.speed && slowOk && !beatNow && nowP - (slot.speedAt || nowP) > 250) { hex = slot.speed; slot.speed = null; lastSlowAt = nowP; lastColorHex = ''; } // a speed command that has waited too long goes first
   else if (slot.bright && (slowOk || beatNow)) { hex = slot.bright; slot.bright = null; lastSlowAt = nowP; lastColorHex = ''; }
   else if (pendingColor) { hex = pendingColor; pendingColor = null; if (hex === lastColorHex) return; lastColorHex = hex; }
   else if (slot.speed && slowOk) { hex = slot.speed; slot.speed = null; lastSlowAt = nowP; lastColorHex = ''; }
@@ -503,7 +504,7 @@ function rawWrite(bytes) {
 const slot = { bright: null, speed: null };
 function sendCmd(hex) {
   if (hex.startsWith('7e0401')) slot.bright = hex;
-  else if (hex.startsWith('7e0702')) slot.speed = hex;
+  else if (hex.startsWith('7e0702')) { if (!slot.speed) slot.speedAt = performance.now(); slot.speed = hex; }
   else cmdQueue.push(hex);
   pump();
 }
@@ -517,7 +518,8 @@ function colorHex(rgb) {
   let out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
   const m = Math.max(...out);
   if (m >= DARK_FLOOR) lastLit = out;
-  else { const lm = Math.max(...lastLit) || 1; out = lastLit.map(v => Math.max(0, (v / lm) * DARK_FLOOR)); }
+  else if (m > 0) out = out.map(v => v * DARK_FLOOR / m);   // a dim real colour keeps its hue, raised to the floor (was replaced by the last lit colour)
+  else { const lm = Math.max(...lastLit) || 1; out = lastLit.map(v => Math.max(0, (v / lm) * DARK_FLOOR)); } // only true black
   document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
   const cur = S.current && S.current.kind === 'effect' ? byId[S.current.id] : null;
   const music = !!cur && (cur.needs === 'audio' || (S.fastColourAll && !cur.drive && !cur.start));
@@ -581,7 +583,7 @@ async function reconnect() {
   setConn('off', 'Lost connection. Tap to retry');
 }
 function disconnect() { userDisconnect = true; if (device && device.gatt.connected) device.gatt.disconnect(); }
-function onPillTap() { if (chr) return; if (device && !reconnecting) reconnect(); else if (!device) connect(); }
+function onPillTap() { if (chr) return; userDisconnect = false; if (device && !reconnecting) reconnect(); else if (!device) connect(); }
 function setConn(state, text) {
   document.getElementById('connDot').className = 'dot ' + (state === 'on' ? 'on' : state === 'busy' ? 'busy' : '');
   document.getElementById('connText').textContent = text;
@@ -1047,7 +1049,9 @@ function autoApply(bpm, beatAt, conf, curFit) {
     auto.locked = true; auto.cand = null; auto.candN = 0;
   } else if (close) {
     // same song: blend tempo and nudge phase gently, so the lights never jump
+    const nowB = performance.now(), phB = (nowB - tempo.t0) / (60000 / S.bpm); // phase before the change
     S.bpm += (bpm - S.bpm) * 0.3;
+    tempo.t0 = nowB - phB * (60000 / S.bpm);                                     // same phase at the new tempo, so no spurious beat
     const p = 60000 / S.bpm; let err = ((beatAt - tempo.t0) % p + p) % p; if (err > p / 2) err -= p;
     tempo.t0 += err * 0.3;
     auto.cand = null; auto.candN = 0;
@@ -1564,7 +1568,7 @@ function tick(now = performance.now()) {
     if (e.drive) e.drive(tVirtual, S.current.params, scratch);
     else sendColor(e.fn(tVirtual, S.current.params, scratch));
   } catch (err) { console.warn(err); }
-  if (!cmdQueue.length && !pendingColor) urgent = false; // nothing to send this frame: don't let it leak to a later one
+  if (!cmdQueue.length && !pendingColor && !slot.bright && !slot.speed) urgent = false; // nothing to send this frame: don't let it leak to a later one
 }
 
 async function runEffect(id, params) {
