@@ -149,8 +149,6 @@
           <div style="flex:2;text-align:center"><span id="bpmVal" style="font-size:30px;font-weight:800">120</span> <span class="hint">BPM</span></div>
           <button class="small" onclick="bpmAdj(1)">＋</button>
         </div>
-        <div class="slider"><label>Pulse on</label><select id="beatDiv" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="auto">Auto (every 2nd beat from 100 BPM)</option><option value="1">Every beat</option><option value="2">Every 2nd beat</option><option value="4">Every 4th beat</option></select></div>
-        <div class="hint" id="beatDivNow"></div>
         <div class="row">
           <button class="small" onclick="bpmMul(0.5)">½×</button>
           <button class="small" onclick="nudge(-25)">◀ Earlier</button>
@@ -192,6 +190,9 @@
 
       <div id="meter"><div></div></div>
       <div class="hint" id="micHint"></div>
+      <div class="slider"><label>Pulse on</label><select id="beatDiv" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="auto">Auto (every 2nd beat from 100 BPM)</option><option value="1">Every beat</option><option value="2">Every 2nd beat</option><option value="4">Every 4th beat</option></select></div>
+      <div class="hint" id="beatDivNow"></div>
+      <div class="hint">Pulse on: fast songs look better when the lights pulse on every 2nd beat. Works for Tempo, Phone mic and Player.</div>
       <div class="slider" style="margin-top:8px"><label>Loudness</label><select id="levelMode" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="follow">Follow the volume</option><option value="auto">Auto level (full range)</option></select></div>
       <div class="hint">Follow the volume: quiet music gives dim lights, loud music gives bright ones, judged against the loudest moment of about the last minute. After you change the speaker volume or distance, tap Reset (or wait about a minute).</div>
       <button class="small" style="width:100%" onclick="resetLevelRef()">↺ Reset volume reference</button>
@@ -290,6 +291,9 @@
       <div class="hint">How many colour updates per second music effects send. The official app sends its music colours far faster than normal ones, so higher usually lands beats better and looks smoother. If the strip lags or drops, lower it (the app lowers it by itself after repeated write timeouts).</div>
       <div class="slider"><label>All effects</label><select id="fastColourAll" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="0">Fast colours for music only (default)</option><option value="1">Fast colours for every effect (experimental)</option></select></div>
 
+      <div class="slider"><label>Dimming gap</label><input type="range" id="slowGap" min="50" max="200" step="10" value="120"><span class="val" id="slowGapVal">120 ms</span></div>
+      <div class="hint">Minimum time between brightness and speed commands (effects that dim or pulse a built-in effect). The strip digests these slowly; if they pile up, pulses land late. Raise it if pulses still drift off-beat, lower it for smoother fades. A beat's own pulse ignores the gap.</div>
+
       <div class="label" style="margin-top:12px">Bluetooth write mode</div>
       <select id="writeMode" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
         <option value="fast">Fast (default: no waiting for the strip's reply)</option>
@@ -364,7 +368,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 pulsediv2';
+const APP_BUILD = '2026-10-01 queue';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -391,6 +395,10 @@ function renderLog() {
   v.textContent = dlogBuf.slice(-40).join('\n'); v.scrollTop = v.scrollHeight;
   const mins = Math.round((Date.now() - dstats.start) / 60000);
   document.getElementById('dlogSummary').textContent = `This session: ${mins} min · ${dstats.drops} drop${dstats.drops === 1 ? '' : 's'} · ${dstats.timeouts} write timeout${dstats.timeouts === 1 ? '' : 's'}`;
+}
+function wstat() {
+  const now = performance.now(), d = (dstats.wd || []).filter(x => now - x[0] < 10000).map(x => x[1]).sort((a, b) => a - b);
+  return d.length ? `${Math.round(d[Math.floor(d.length / 2)])}/${Math.round(d[Math.floor(d.length * 0.95)])}/${Math.round(d[d.length - 1])}` : '-';
 }
 function logHeader() {
   return [`Board Lights diagnostics · build ${APP_BUILD}`, `time ${new Date().toString().slice(0, 33)}`,
@@ -419,7 +427,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -437,20 +445,29 @@ let inflight = false, lastColorHex = '';
 // phone, so without pacing, slider drags pile up in the BLE stack and the strip lags behind.
 // Pace every write to the update rate; pendingColor always holds only the newest colour.
 let lastWriteAt = 0, pumpTimer = null, urgent = false;
+// ms between brightness/speed commands: S.slowGap (LotusLamp X uses 100 ms for these; adjustable in Settings)
+let lastSlowAt = 0;
 function pump() {
   if (inflight || !chr) return;
-  if (!cmdQueue.length && !pendingColor) return;
+  if (!cmdQueue.length && !pendingColor && !slot.bright && !slot.speed) return;
   // A beat pulse (urgent) skips the pacing gap: waiting its turn behind the previous packet was
   // the remaining 0-66 ms wobble. It still never overlaps a write in flight.
   if (urgent) { clearTimeout(pumpTimer); pumpTimer = null; }
   if (pumpTimer) return;
   const wait = lastWriteAt + 1000 / effFps() - 4 - performance.now(); // 8 ms slack so frame-timer jitter doesn't push a frame back a whole slot
   if (wait > 0 && !urgent) { pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, wait); return; }
-  urgent = false;
-  let hex;
+  const beatNow = urgent; urgent = false;
+  const nowP = performance.now(), slowOk = nowP - lastSlowAt >= S.slowGap;
+  let hex = null;
   if (cmdQueue.length) { hex = cmdQueue.shift(); lastColorHex = ''; }
+  else if (slot.bright && (slowOk || beatNow)) { hex = slot.bright; slot.bright = null; lastSlowAt = nowP; lastColorHex = ''; }
   else if (pendingColor) { hex = pendingColor; pendingColor = null; if (hex === lastColorHex) return; lastColorHex = hex; }
-  else return;
+  else if (slot.speed && slowOk) { hex = slot.speed; slot.speed = null; lastSlowAt = nowP; lastColorHex = ''; }
+  if (!hex) { // only gated brightness/speed left: try again when the gap is over
+    if ((slot.bright || slot.speed) && !pumpTimer) pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, Math.max(1, S.slowGap - (nowP - lastSlowAt)));
+    return;
+  }
+  if (hex.startsWith('7e0401') || hex.startsWith('7e0702')) { (dstats.sl || (dstats.sl = [])).push(nowP); if (dstats.sl.length > 200) dstats.sl.shift(); }
   inflight = true;
   lastWriteAt = performance.now();
   dstats.w.push(lastWriteAt); if (dstats.w.length > 400) dstats.w.splice(0, dstats.w.length - 400);
@@ -458,6 +475,7 @@ function pump() {
   const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
   // Watchdog: a write that never settles would otherwise block the queue and freeze the strip.
   const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('write timeout')), 600));
+  const wt0 = performance.now();
   Promise.race([rawWrite(bytes), timeout])
     .catch(e => {
       console.warn('write', e);
@@ -468,7 +486,7 @@ function pump() {
       }
       else dlog('WRITE-ERROR', String(e && e.message || e).slice(0, 80) + ' ' + dctx(), 2000);
     })
-    .finally(() => { inflight = false; pump(); });
+    .finally(() => { (dstats.wd || (dstats.wd = [])).push([performance.now(), performance.now() - wt0]); if (dstats.wd.length > 300) dstats.wd.shift(); inflight = false; pump(); });
 }
 // Prefer acknowledged writes when the strip supports them: the strip then sets the pace and can't be flooded.
 let useAck = true;
@@ -478,7 +496,17 @@ function rawWrite(bytes) {
   }
   return chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
 }
-function sendCmd(hex) { cmdQueue.push(hex); pump(); }
+// Brightness and speed commands used to wait in a strict first-come queue, so the pulse that should happen NOW could sit
+// behind older brightness/speed commands that were already out of date (and the strip itself only digests such commands
+// at about 10 per second, as the official app's 100 ms spacing shows). They are now "latest wins" slots: a newer value
+// replaces an older one that hasn't gone out yet, and the brightness of a beat goes out before anything else.
+const slot = { bright: null, speed: null };
+function sendCmd(hex) {
+  if (hex.startsWith('7e0401')) slot.bright = hex;
+  else if (hex.startsWith('7e0702')) slot.speed = hex;
+  else cmdQueue.push(hex);
+  pump();
+}
 // Pure black (0,0,0) made the strip disconnect/reconnect in a loop: every Flash effect hits it,
 // no Flow effect does. Either the controller treats it like "off" and resets, or the power bank
 // sees almost no load and cuts out. So "black" is sent as a faint glow of the last lit colour.
@@ -584,7 +612,7 @@ function fireLife(t, p, st, tint = [255, 90, 0]) {
   st.dip = (st.dip || 0) * 0.6; st.flare = (st.flare || 0) * 0.7;
   const k = Math.min(1, swell * (1 - p.flicker * 0.6 * (1 - st.n)) * (1 - st.dip) + st.flare);
   const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * k)));
-  if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
+  if (b !== S.hwBright) { S.hwBright = b; sendCmd(CMD.bright(b)); }
   const flow = fireFlow(p);
   if (st.flow !== flow) { st.flow = flow; sendCmd(CMD.speed(flow)); st.nextGust = t + 2 + r() * 4; } // a slider moved: at most one per frame
   if (t >= st.nextGust) {
@@ -712,20 +740,53 @@ function sampleAudio() {
   if (audio.hist[0].t <= now - delay) applyFrame(audio.hist[0], now, true);
 }
 function applyFrame(f, now, detect) {
-  audio.bass = f.bass; audio.mid = f.mid; audio.treble = f.treble;
-  // "Whitened" bands: each band relative to its own ~4 s average. A sustained band (vocals, chords, a speaker
-  // that only plays mids) then sits low and only pops when it rises, so the colours show what changes.
-  const wdt = Math.min(0.2, (now - (audio.wbT || now)) / 1000); audio.wbT = now;
-  const wa = 1 - Math.exp(-wdt / 4), mean = audio.mean || (audio.mean = { bass: f.bass, mid: f.mid, treble: f.treble }), wb = audio.wb || (audio.wb = {});
-  for (const k of ['bass', 'mid', 'treble']) { mean[k] += (f[k] - mean[k]) * wa; wb[k] = Math.max(0, Math.min(1, (f[k] - 0.5 * mean[k]) / (1.5 * mean[k] + 0.05))); }
-  audio.level = Math.min(1, f.bass * 0.85 + f.mid * 0.3 + f.treble * 0.1); // the beat carries the pulse; mids/highs add body
   // Beat = a sudden rise in bass (onset), compared with how much it usually rises. Comparing the bass
   // *level* to its average fails with loud bass-heavy music: the average saturates and nothing triggers.
   const rise = Math.max(0, f.bass - (audio.prevBass ?? f.bass));
   audio.prevBass = f.bass;
   audio.avg = audio.avg * 0.9 + rise * 0.1;
-  if (detect && rise > audio.avg * 2 + 0.04 && f.bass > 0.15 && now - audio.lastBeat > 200) { audio.lastBeat = now; audio.beatCount++; flashBeat(); kickFrame(); }
+  const wdt = Math.min(0.2, (now - (audio.wbT || now)) / 1000); audio.wbT = now;
+  let g = f;
+  if (detect) {
+    if (rise > audio.avg * 2 + 0.04 && f.bass > 0.15 && now - (audio.lastOnset || 0) > 200) {
+      const ibi = now - (audio.lastOnset || now); audio.lastOnset = now;
+      if (ibi > 200 && ibi < 1500) { (audio.ibis || (audio.ibis = [])).push(ibi); if (audio.ibis.length > 12) audio.ibis.shift(); }
+      audio.onsetN = (audio.onsetN || 0) + 1;
+      const str = Math.min(1, 0.45 + rise * 1.5), res = audio.resS || (audio.resS = [0.3, 0.3, 0.3, 0.3]), r4 = audio.onsetN % 4;
+      res[r4] = res[r4] * 0.8 + str * 0.2;
+      const dv = detDiv();
+      let hit = true;
+      if (dv > 1) {
+        // pick the louder of the alternating onsets as the hits (e.g. kick vs the beat in between), with some hysteresis
+        const avgs = []; for (let ph = 0; ph < dv; ph++) { let t = 0, n = 0; for (let k = ph; k < 4; k += dv) { t += res[k]; n++; } avgs[ph] = t / n; }
+        const cur = (audio.hitRes || 0) % dv; let best = cur; avgs.forEach((v, ph) => { if (v > avgs[best] * 1.15) best = ph; });
+        audio.hitRes = best; hit = audio.onsetN % dv === best;
+      }
+      if (hit) { audio.lastBeat = audio.lastHit = now; audio.hitStrength = str; audio.beatCount++; flashBeat(); kickFrame(); }
+    }
+    const dv = detDiv();
+    if (dv > 1) {
+      // Reshape the bass into one pulse per hit, lasting over the divided period (as in Tempo mode); mids/highs only add smooth body.
+      const med = detBpm() ? 60000 / detBpm() : 500, since = now - (audio.lastHit || 0);
+      audio.mS = follow(audio.mS || 0, f.mid, wdt, 0.12, 0.3); audio.tS = follow(audio.tS || 0, f.treble, wdt, 0.12, 0.3);
+      g = { bass: (audio.hitStrength || 0) * Math.exp(-since / Math.max(80, med * dv / 6)), mid: audio.mS, treble: audio.tS };
+    }
+  }
+  audio.bass = g.bass; audio.mid = g.mid; audio.treble = g.treble;
+  // "Whitened" bands: each band relative to its own ~4 s average. A sustained band (vocals, chords, a speaker
+  // that only plays mids) then sits low and only pops when it rises, so the colours show what changes.
+  const wa = 1 - Math.exp(-wdt / 4), mean = audio.mean || (audio.mean = { bass: g.bass, mid: g.mid, treble: g.treble }), wb = audio.wb || (audio.wb = {});
+  for (const k of ['bass', 'mid', 'treble']) { mean[k] += (g[k] - mean[k]) * wa; wb[k] = Math.max(0, Math.min(1, (g[k] - 0.5 * mean[k]) / (1.5 * mean[k] + 0.05))); }
+  audio.level = Math.min(1, g.bass * 0.85 + g.mid * 0.3 + g.treble * 0.1); // the beat carries the pulse; mids/highs add body
   document.querySelector('#meter > div').style.width = Math.min(100, audio.level * 160) + '%';
+}
+// Tempo estimate for Phone mic / Player: median gap between detected onsets.
+function detBpm() { const a = audio.ibis; if (!a || a.length < 5) return 0; const t = [...a].sort((x, y) => x - y); return 60000 / t[Math.floor(t.length / 2)]; }
+function detDiv() {
+  if (S.beatDiv !== 'auto') return +S.beatDiv;
+  const b = detBpm(); if (!b) return 1;
+  if (b >= 180) audio.autoDivD = 4; else if (b >= 100) audio.autoDivD = 2; else if (b < 95) audio.autoDivD = 1;
+  return audio.autoDivD || 1;
 }
 // Pulse on every Nth beat. The tempo itself stays exact (Auto-listen keeps tracking it); only which beats make the lights
 // hit changes, with each pulse shaped for the slower rate so it has room to rise and fall (like halving the BPM by hand,
@@ -1295,7 +1356,7 @@ const EFFECTS = [
       if (p.flares > 0 && now >= st.nextFlare) {
         // Strip brightness to full; the flare's level comes from the colour (sendColor applies the Brightness slider).
         // Ember colour goes out before the brightness change, so the marquee never gets a bright blip.
-        pendingColor = null;
+        pendingColor = null; slot.bright = null;
         sendCmd(colorHex(scale(EMBER, 0.6))); sendCmd(CMD.bright(100)); S.hwBright = 100;
         st.flareOn = { start: now, dur: 500 + r() * 500, c: FLARES[Math.floor(r() * FLARES.length)], peak: 0.45 + r() * 0.3 };
         st.nextFlare = now + st.flareOn.dur + (1500 + r() * 4000) / (0.25 + p.flares * 1.5);
@@ -1428,8 +1489,8 @@ const EFFECTS = [
       // much deeper (default 8%) and is shaped with a curve so the low end is actually dark.
       const lvl = p.low + (1 - p.low) * Math.max(st.k, Math.min(1, audio.level * 1.2) * 0.6);
       const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * lvl ** 1.8)));
-      if (beat) { pendingColor = null; S.hwBright = b; sendCmd(CMD.bright(b)); } // the pulse goes out first
-      else if (Math.abs(b - S.hwBright) >= 3 || (b <= 5 && b !== S.hwBright)) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
+      if (beat) { S.hwBright = b; sendCmd(CMD.bright(b)); urgent = true; pump(); } // the pulse goes out first, ahead of the gap
+      else if (Math.abs(b - S.hwBright) >= 3 || (b <= 5 && b !== S.hwBright)) { S.hwBright = b; sendCmd(CMD.bright(b)); }
       if (beat && p.kick > 0) { sendCmd(CMD.speed(Math.min(100, Math.round(flow * (1 + p.kick))))); st.kicked = true; }
       if (st.kicked && st.k < 0.3) { sendCmd(CMD.speed(flow)); st.kicked = false; }
       document.getElementById('preview').style.background = `linear-gradient(90deg,${[0, 60, 120, 180, 240, 300].map(h => `hsl(${h + t * 40},100%,${Math.round(8 + 47 * lvl ** 1.8)}%)`).join(',')})`;
@@ -1522,7 +1583,7 @@ async function runEffect(id, params) {
 // Built-in effects are dimmed with the strip's own brightness command; phone-driven colours
 // are dimmed by scaling RGB. Reset hardware brightness when leaving a built-in so the two don't stack.
 function leaveBuiltin() { if (S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); } }
-function applyHwBright() { const b = Math.round(S.bright * 100); if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); } }
+function applyHwBright() { const b = Math.round(S.bright * 100); if (b !== S.hwBright) { S.hwBright = b; sendCmd(CMD.bright(b)); } }
 function setSolid(hex) {
   dlog('solid', hex, 1500);
   stopEngine();
@@ -1778,8 +1839,13 @@ document.getElementById('stripSens').value = S.stripSens; document.getElementByI
 function syncMusicFpsUi() { const e = document.getElementById('musicFps'); if (e) { e.value = S.musicFps; document.getElementById('musicFpsVal').textContent = S.musicFps + '/s'; } }
 document.getElementById('beatDiv').value = S.beatDiv;
 document.getElementById('beatDiv').addEventListener('change', e => { S.beatDiv = e.target.value; store('beatDiv', S.beatDiv); tempo.lastHitIdx = undefined; tempo.hitPhase = 0; dlog('pulse division', S.beatDiv); renderBeatDiv(); });
-function renderBeatDiv() { const d = beatDiv(); document.getElementById('beatDivNow').textContent = d === 1 ? 'Pulsing on every beat.' : 'Pulsing on every ' + (d === 2 ? '2nd' : '4th') + ' beat (' + (S.bpm / d).toFixed(0) + ' pulses a minute). The tempo itself stays exact.'; }
+function renderBeatDiv() {
+  const d = S.audioSrc === 'tempo' ? beatDiv() : detDiv(), bpm = S.audioSrc === 'tempo' ? S.bpm : detBpm();
+  document.getElementById('beatDivNow').textContent = d === 1 ? 'Pulsing on every beat.' : 'Pulsing on every ' + (d === 2 ? '2nd' : '4th') + ' beat' + (bpm ? ' (about ' + (bpm / d).toFixed(0) + ' pulses a minute)' : '') + '.';
+}
 setInterval(renderBeatDiv, 1000); renderBeatDiv();
+bindSlider('slowGap', v => { S.slowGap = v; store('slowGap', v); }, v => v + ' ms');
+document.getElementById('slowGap').value = S.slowGap; document.getElementById('slowGapVal').textContent = S.slowGap + ' ms';
 bindSlider('musicFps', v => { S.musicFps = v; store('musicFps', v); if (timer) startEngine(); }, v => v + '/s');
 syncMusicFpsUi();
 document.getElementById('fastColourAll').value = S.fastColourAll ? '1' : '0';
@@ -1787,7 +1853,7 @@ document.getElementById('fastColourAll').addEventListener('change', e => { S.fas
 bindSlider('micGain', v => { S.micGainDb = v; store('micGainDb', v); if (audio.micGain) audio.micGain.gain.value = Math.pow(10, v / 20); }, v => v + ' dB');
 document.getElementById('micGain').value = S.micGainDb; document.getElementById('micGainVal').textContent = S.micGainDb + ' dB';
 bindSlider('syncDelay', v => { S.syncDelay = v; store('syncDelay', v); }, v => v + 'ms');
-bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); pendingColor = CMD.speed(v); pump(); }, v => v);
+bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); sendCmd(CMD.speed(v)); }, v => v);
 function renderLockOptions() {
   document.getElementById('lockMode').innerHTML = fxCats().map(c => `<optgroup label="${c.cat}">` + c.fx.map(([n, name]) => `<option value="${n}">${name}</option>`).join('') + '</optgroup>').join('');
   document.getElementById('lockMode').value = S.lockMode;
@@ -1859,7 +1925,7 @@ setInterval(() => {
   const ag = S.audioSrc === 'mic' ? agc.mic : S.audioSrc === 'player' ? agc.play : (auto.on ? agc.tempo : null), f2 = v => (v || 0).toFixed(2);
   const cv = dstats.cv.filter(c => now - c[0] < 10000).map(c => c[1]);
   const sent = cv.length ? `${Math.round(cv.reduce((a, b) => a + b, 0) / cv.length)}/${Math.max(...cv)}` : '-';
-  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.bpm.toFixed(1)} div=${beatDiv()} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent}` + (ag && ag.hist && ag.hist.length ? ` raw10sMax=${[1, 2, 3].map(i => f2(Math.max(...ag.hist.map(h => h[i])))).join('/')} raw10sAvg=${[1, 2, 3].map(i => f2(ag.hist.reduce((a, h) => a + h[i], 0) / ag.hist.length)).join('/')} ref=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + ` micGain=${S.micGainDb}dB` + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
+  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.audioSrc === 'tempo' ? S.bpm.toFixed(1) : (detBpm() ? detBpm().toFixed(1) + '(est)' : '-')} div=${S.audioSrc === 'tempo' ? beatDiv() : detDiv()} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent} writeMs=${wstat()} slowCmds/s=${((dstats.sl || []).filter(t => now - t < 10000).length / 10).toFixed(1)}` + (ag && ag.hist && ag.hist.length ? ` raw10sMax=${[1, 2, 3].map(i => f2(Math.max(...ag.hist.map(h => h[i])))).join('/')} raw10sAvg=${[1, 2, 3].map(i => f2(ag.hist.reduce((a, h) => a + h[i], 0) / ag.hist.length)).join('/')} ref=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + ` micGain=${S.micGainDb}dB` + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
 }, 10000);
 if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
