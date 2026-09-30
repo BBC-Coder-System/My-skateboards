@@ -149,7 +149,7 @@
           <div style="flex:2;text-align:center"><span id="bpmVal" style="font-size:30px;font-weight:800">120</span> <span class="hint">BPM</span></div>
           <button class="small" onclick="bpmAdj(1)">＋</button>
         </div>
-        <div class="slider"><label>Pulse on</label><select id="beatDiv" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="auto">Auto (every 2nd beat on fast songs)</option><option value="1">Every beat</option><option value="2">Every 2nd beat</option><option value="4">Every 4th beat</option></select></div>
+        <div class="slider"><label>Pulse on</label><select id="beatDiv" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="auto">Auto (every 2nd beat from 100 BPM)</option><option value="1">Every beat</option><option value="2">Every 2nd beat</option><option value="4">Every 4th beat</option></select></div>
         <div class="hint" id="beatDivNow"></div>
         <div class="row">
           <button class="small" onclick="bpmMul(0.5)">½×</button>
@@ -364,7 +364,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 pulsediv';
+const APP_BUILD = '2026-10-01 pulsediv2';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -729,10 +729,10 @@ function applyFrame(f, now, detect) {
 }
 // Pulse on every Nth beat. The tempo itself stays exact (Auto-listen keeps tracking it); only which beats make the lights
 // hit changes, with each pulse shaped for the slower rate so it has room to rise and fall (like halving the BPM by hand,
-// but it survives Auto-listen re-locking). 'auto': fast songs (above ~118 BPM) pulse on every 2nd beat.
+// but it survives Auto-listen re-locking). 'auto': songs from 100 BPM up pulse on every 2nd beat (user finding: faster than that goes off-beat too often).
 function beatDiv() {
   if (S.beatDiv !== 'auto') return +S.beatDiv;
-  if (S.bpm >= 190) tempo.autoDiv = 4; else if (S.bpm >= 118) tempo.autoDiv = 2; else if (S.bpm < 112) tempo.autoDiv = 1; // 112-118: keep the last choice (no flip-flopping)
+  if (S.bpm >= 180) tempo.autoDiv = 4; else if (S.bpm >= 100) tempo.autoDiv = 2; else if (S.bpm < 95) tempo.autoDiv = 1; // 95-100: keep the last choice (no flip-flopping)
   return tempo.autoDiv || 1;
 }
 function sampleTempo(now) {
