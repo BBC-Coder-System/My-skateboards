@@ -193,6 +193,8 @@
       <div class="slider" style="margin-top:8px"><label>Loudness</label><select id="levelMode" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="follow">Follow the volume</option><option value="auto">Auto level (full range)</option></select></div>
       <div class="hint">Follow the volume: quiet music gives dim lights, loud music gives bright ones, judged against the loudest moment of about the last minute. After you change the speaker volume or distance, tap Reset (or wait about a minute).</div>
       <button class="small" style="width:100%" onclick="resetLevelRef()">↺ Reset volume reference</button>
+      <div class="slider" style="margin-top:8px"><label>Mic gain</label><input type="range" id="micGain" min="0" max="30" step="1" value="12"><span class="val" id="micGainVal">12 dB</span></div>
+      <div class="hint">Phone microphone sensitivity. Raise it if the lights barely react to quiet music; lower it if loud music makes everything max out.</div>
     </div>
     <div class="card" id="musicFxCard">
       <div class="label">Music effects</div>
@@ -355,7 +357,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-09-30 follow';
+const APP_BUILD = '2026-09-30 robust';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -410,7 +412,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -622,14 +624,20 @@ function agcNorm(ag, raw) {
       // volume drops (16 dB quieter looked only ~25% lower). Work in dB instead: the reference is the loudest
       // recent level, easing down ~0.18 dB/s (about 10 dB a minute), and the output falls by 10^(dB/32), so
       // 16 dB quieter is about a third as bright, and anything ~35 dB below the reference reads as silence.
-      ag[k] = Math.max(raw[k], ag[k] - dt * 0.0025, 0.05);
-      out[k] = Math.max(0, (Math.pow(10, (raw[k] - ag[k]) * 70 / 32) - 0.1) / 0.9);
+      // The reference rises slowly (1.5 s time constant) so a click, knock or notification (~0.1 s) barely moves it,
+      // while music that really is louder lifts it within a few seconds. (Before, one spike raised it instantly and the
+      // lights stayed dark for about a minute while it eased back down.)
+      ag[k] = raw[k] > ag[k] ? ag[k] + (raw[k] - ag[k]) * (1 - Math.exp(-dt / 1.5)) : ag[k] - dt * 0.0025;
+      ag[k] = Math.max(ag[k], 0.05);
+      out[k] = Math.min(1, Math.max(0, (Math.pow(10, (raw[k] - ag[k]) * 70 / 32) - 0.1) / 0.9));
     } else {
       ag[k] = Math.max(raw[k], ag[k] * Math.exp(-dt / 14), AGC_FLOOR);
       out[k] = Math.max(0, (raw[k] / ag[k] - AGC_GATE) / (1 - AGC_GATE));
     }
   }
   ag.raw = raw; // kept for the diagnostics log
+  (ag.hist || (ag.hist = [])).push([now, raw.bass, raw.mid, raw.treble]);
+  while (ag.hist.length > 700 || (ag.hist.length && now - ag.hist[0][0] > 10000)) ag.hist.shift();
   return out;
 }
 function resetLevelRef() {
@@ -651,7 +659,10 @@ async function startMic() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     audio.micAn = makeAnalyser(0.15);
     audio.micSrc = getCtx().createMediaStreamSource(stream);
-    audio.micSrc.connect(audio.micAn);
+    // Quiet music (like a night-time test) sits right at the analyser's -100 dB floor, where volume changes can't be
+    // seen. A gain in front of the analyser (only) lifts it into range.
+    audio.micGain = getCtx().createGain(); audio.micGain.gain.value = Math.pow(10, S.micGainDb / 20);
+    audio.micSrc.connect(audio.micGain); audio.micGain.connect(audio.micAn);
     micHint('Listening 🎤');
     return true;
   } catch (e) { micHint('Microphone blocked: ' + e.message + '. Allow mic for Bluefy in iPhone Settings.', true); return false; }
@@ -1717,6 +1728,8 @@ document.getElementById('stripStyle').value = S.stripMode;
 document.getElementById('stripStyle').addEventListener('change', e => { S.stripMode = +e.target.value; store('stripMode', S.stripMode); if (S.current && S.current.kind === 'stripmic') { sendCmd(CMD.micMode(S.stripMode)); } });
 bindSlider('stripSens', v => { S.stripSens = v; store('stripSens', v); if (S.current && S.current.kind === 'stripmic') { pendingColor = CMD.micSens(v); pump(); } }, v => v);
 document.getElementById('stripSens').value = S.stripSens; document.getElementById('stripSensVal').textContent = S.stripSens;
+bindSlider('micGain', v => { S.micGainDb = v; store('micGainDb', v); if (audio.micGain) audio.micGain.gain.value = Math.pow(10, v / 20); }, v => v + ' dB');
+document.getElementById('micGain').value = S.micGainDb; document.getElementById('micGainVal').textContent = S.micGainDb + ' dB';
 bindSlider('syncDelay', v => { S.syncDelay = v; store('syncDelay', v); }, v => v + 'ms');
 bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); pendingColor = CMD.speed(v); pump(); }, v => v);
 function renderLockOptions() {
@@ -1790,7 +1803,7 @@ setInterval(() => {
   const ag = S.audioSrc === 'mic' ? agc.mic : S.audioSrc === 'player' ? agc.play : (auto.on ? agc.tempo : null), f2 = v => (v || 0).toFixed(2);
   const cv = dstats.cv.filter(c => now - c[0] < 10000).map(c => c[1]);
   const sent = cv.length ? `${Math.round(cv.reduce((a, b) => a + b, 0) / cv.length)}/${Math.max(...cv)}` : '-';
-  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.bpm.toFixed(1)} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent}` + (ag && ag.raw ? ` rawBands=${f2(ag.raw.bass)}/${f2(ag.raw.mid)}/${f2(ag.raw.treble)} agcPeak=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
+  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.bpm.toFixed(1)} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent}` + (ag && ag.hist && ag.hist.length ? ` raw10sMax=${[1, 2, 3].map(i => f2(Math.max(...ag.hist.map(h => h[i])))).join('/')} raw10sAvg=${[1, 2, 3].map(i => f2(ag.hist.reduce((a, h) => a + h[i], 0) / ag.hist.length)).join('/')} ref=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + ` micGain=${S.micGainDb}dB` + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
 }, 10000);
 if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
