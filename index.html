@@ -190,6 +190,19 @@
   </section>
   <section id="tab-motion" class="hidden">
     <div class="card">
+      <div class="label">Brake light (GPS speed)</div>
+      <div class="hint">Cruising: your effect plays normally. When your speed drops fast, the strip turns bright red until you stop braking, then your effect comes back. Works with any effect. Needs the screen on (use Ride mode) and location allowed for Bluefy.</div>
+      <button id="btnBrake" class="small" style="width:100%" onclick="toggleBrake()">🛑 Brake light: Off</button>
+      <div style="text-align:center;margin:10px 0 2px"><span id="brakeSpeed" style="font-size:38px;font-weight:800">–</span> <span class="hint">km/h</span></div>
+      <div class="hint" id="brakeStatus" style="text-align:center"></div>
+      <div class="slider"><label>Sensitivity</label><input type="range" id="brakeSens" min="1" max="10" value="7"><span class="val" id="brakeSensVal">7</span></div>
+      <div class="hint">Higher = lights up on gentler braking, but more false alarms.</div>
+      <div class="slider"><label>Style</label><select id="brakeStyle" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="flash">Flash first, then solid</option><option value="solid">Solid red</option></select></div>
+      <div class="slider"><label>Fast mode</label><select id="brakeFast" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="1">On: motion sensor + GPS</option><option value="0">Off: GPS only</option></select></div>
+      <div class="hint">GPS updates once a second, so alone it reacts about a second late. Fast mode also uses the phone's motion sensor, which it learns from your GPS speed changes as you ride (it needs a few pushes and brakes first, and works best with the phone in the same spot).</div>
+      <button class="small" style="width:100%;margin-top:6px" onclick="testBrake()">▶ Test the brake light (2.5 s)</button>
+    </div>
+    <div class="card">
       <div class="label">Motion reactive (phone sensors)</div>
       <div class="tiles" data-group="motion"></div>
       <div id="meter2" style="height:8px;border-radius:4px;background:#000;overflow:hidden;margin-top:8px"><div style="height:100%;width:0;background:var(--warn)"></div></div>
@@ -315,6 +328,7 @@ const S = {
   fxCat: load('fxCat', 'Basic'),
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
+  brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -401,6 +415,7 @@ async function openGatt() {
   sendCmd(S.power ? CMD.on : CMD.off);
   const other = supportsOtherFx(device.name);
   if (other !== S.otherFx) { S.otherFx = other; store('otherFx', other); renderModes(); renderLockOptions(); }
+  if (S.brakeOn && !brake.on) startBrake();
   setConn('on', (device.name || 'Strip').trim() + (S.drops ? ' · ' + S.drops + ' drop' + (S.drops > 1 ? 's' : '') : ''));
   restoreOutput();
 }
@@ -792,19 +807,26 @@ function clearSongs() { playerEl().pause(); songs.forEach(x => URL.revokeObjectU
 
 /* ---------------- sensors: motion ---------------- */
 const motion = { on: false, jolt: 0, energy: 0, tiltHue: 0, lastJolt: 0 };
-async function startMotion() {
+async function startMotion(quiet) {
   if (motion.on) return true;
   try {
     if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
       const r = await DeviceMotionEvent.requestPermission();
-      if (r !== 'granted') { toast('Motion access was denied'); return false; }
+      if (r !== 'granted') { if (!quiet) toast('Motion access was denied'); return false; }
     }
-  } catch (e) { toast('Motion permission: ' + e.message); return false; }
+  } catch (e) { if (!quiet) toast('Motion permission: ' + e.message); return false; }
   window.addEventListener('devicemotion', e => {
     const g = e.accelerationIncludingGravity || {}, a = e.acceleration;
-    let mag;
-    if (a && a.x != null) mag = Math.hypot(a.x, a.y, a.z);
-    else mag = Math.abs(Math.hypot(g.x || 0, g.y || 0, g.z || 0) - 9.81);
+    let mag, lin = null;
+    if (a && a.x != null) { mag = Math.hypot(a.x, a.y, a.z); lin = [a.x, a.y, a.z]; }
+    else {
+      mag = Math.abs(Math.hypot(g.x || 0, g.y || 0, g.z || 0) - 9.81);
+      if (g.x != null) { // no gravity-free reading: remove a slowly-following gravity estimate
+        const cur = [g.x, g.y, g.z]; motion.grav = motion.grav ? motion.grav.map((v, i) => v * 0.98 + cur[i] * 0.02) : cur;
+        lin = cur.map((v, i) => v - motion.grav[i]);
+      }
+    }
+    if (lin) brakeMotion(lin, performance.now());
     motion.energy = motion.energy * 0.92 + mag * 0.08;
     motion.jolt = mag;
     if (g.x != null) motion.tiltHue = (Math.atan2(g.y, g.x) * 180 / Math.PI + 360) % 360;
@@ -812,6 +834,150 @@ async function startMotion() {
   });
   motion.on = true;
   return true;
+}
+
+/* ---------------- brake light ---------------- */
+// GPS speed (about 1 Hz) is the ground truth. Fast mode adds the motion sensor: at each GPS fix the
+// average phone acceleration over that second is regressed on the GPS acceleration (speed change),
+// which reveals which way "forward" points in the phone's own axes, with no calibration step.
+// Once that axis is known, the sensor sees braking within ~150 ms instead of ~1 s.
+const BRAKE_MIN_V = 2.0; // m/s (7 km/h): below this it's walking pace, not riding
+const brake = { on: false, watch: null, timer: null, hist: [], speed: null, fixAt: 0, active: false, since: 0, lastDecel: 0,
+  forceUntil: 0, stoppedAt: 0, phase: -1, uiAt: 0, reason: '',
+  S: [0, 0, 0], W: 0, G2: 0, axis: null, ready: false, accSum: [0, 0, 0], accN: 0, fEma: 0, lowSince: 0, lastMotionAt: 0 };
+const brakeThr = () => 3.4 - 0.24 * S.brakeSens; // m/s^2 of slowing: sensitivity 7 -> 1.7, 10 -> 1.0, 1 -> 3.2
+
+function haversine(a, b) {
+  const R = 6371000, r = Math.PI / 180, dLat = (b.latitude - a.lat) * r, dLon = (b.longitude - a.lon) * r;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.latitude * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+async function startBrake() {
+  if (brake.on) return true;
+  if (!navigator.geolocation) { brakeStatus('This browser has no GPS access.', true); return false; }
+  brake.watch = navigator.geolocation.watchPosition(onFix,
+    err => brakeStatus('GPS: ' + err.message + '. Allow location for Bluefy in iPhone Settings.', true),
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  brake.on = true; brake.hist = []; brake.speed = null;
+  if (!brake.timer) brake.timer = setInterval(brakeTick, 50);
+  if (S.brakeFast) startMotion(true); // needs a tap for its permission; retried on the next tap
+  document.getElementById('btnBrake').textContent = '🛑 Brake light: On';
+  document.getElementById('btnBrake').classList.add('primary');
+  brakeUi();
+  return true;
+}
+function stopBrake() {
+  if (brake.watch != null) navigator.geolocation.clearWatch(brake.watch);
+  brake.watch = null; brake.on = false;
+  if (brake.active) brakeEnd();
+  if (brake.timer && !brake.active) { clearInterval(brake.timer); brake.timer = null; }
+  document.getElementById('btnBrake').textContent = '🛑 Brake light: Off';
+  document.getElementById('btnBrake').classList.remove('primary');
+  brakeUi();
+}
+function toggleBrake() {
+  const on = !S.brakeOn; S.brakeOn = on; store('brakeOn', on);
+  if (on) { startBrake(); if (!chr) toast('Connect to the strip to see the brake light'); } else stopBrake();
+}
+function brakeStatus(t, bad) { const el = document.getElementById('brakeStatus'); el.textContent = t; el.className = 'hint' + (bad ? ' warn' : ''); }
+function brakeUi() {
+  const now = performance.now(), fresh = brake.on && brake.speed != null && now - brake.fixAt < 4000;
+  document.getElementById('brakeSpeed').textContent = fresh ? Math.round(brake.speed * 3.6) : '–';
+  if (!brake.on) { brakeStatus(S.brakeOn ? 'Brake light will start once you connect to the strip.' : ''); return; }
+  const fast = !S.brakeFast ? 'fast mode off' : !motion.on ? 'fast mode needs motion access (tap Ride mode or this button again)'
+    : brake.ready ? 'fast mode ready' : 'fast mode learning ' + Math.min(99, Math.round(brake.W / 6 * 100)) + '%';
+  brakeStatus((brake.active ? '🛑 BRAKING' : fresh ? 'Cruising' : 'Waiting for GPS…') + ' · ' + fast);
+}
+function onFix(pos) {
+  const now = performance.now(), t = pos.timestamp || Date.now(), c = pos.coords, h = brake.hist, last = h[h.length - 1];
+  let v = c.speed;
+  if (!(v >= 0)) { // null / NaN: work the speed out from how far we moved
+    v = null;
+    if (last && last.lat != null && c.accuracy <= 30) { const dt = (t - last.t) / 1000; if (dt > 0.3 && dt < 5) v = haversine(last, c) / dt; }
+  }
+  brake.fixAt = now;
+  if (v == null) { brakeUi(); return; }
+  h.push({ t, v, at: now, lat: c.latitude, lon: c.longitude }); while (h.length > 4) h.shift();
+  brake.speed = v;
+  const thr = brakeThr();
+  if (h.length >= 2) {
+    const p1 = h[h.length - 2], dt1 = (t - p1.t) / 1000;
+    if (dt1 > 0.3 && dt1 < 3) {
+      const a1 = (p1.v - v) / dt1;                                            // + = slowing down
+      const p2 = h.length >= 3 ? h[h.length - 3] : null, dt2 = p2 ? (t - p2.t) / 1000 : 0;
+      const a2 = p2 && dt2 < 4 ? (p2.v - v) / dt2 : 0;                        // same over the last two intervals
+      brakeLearn(-a1, dt1, p1.v);
+      if (p1.v >= 0.7 && v < 0.7) brake.stoppedAt = now;
+      if (brake.active) { if (a1 >= thr * 0.5 || a2 >= thr * 0.4) brake.lastDecel = now; }
+      else if (p1.v >= BRAKE_MIN_V && (a1 >= thr || a2 >= thr * 0.85 || v < 0.7)) brakeStart('gps');
+    } else brake.accSum = [0, 0, 0], brake.accN = 0;
+  }
+  brakeUi();
+}
+function brakeLearn(gAcc, dt, vPrev) {
+  const n = brake.accN, m = n ? brake.accSum.map(x => x / n) : null;
+  brake.accSum = [0, 0, 0]; brake.accN = 0;
+  if (!m || vPrev < BRAKE_MIN_V || Math.abs(gAcc) < 0.3 || dt < 0.5 || dt > 2.5) return;
+  const d = 0.97; // old evidence fades, so a phone that shifts in the pocket is re-learned
+  brake.S = brake.S.map((x, i) => x * d + m[i] * gAcc);
+  brake.W = brake.W * d + Math.min(Math.abs(gAcc), 3);
+  brake.G2 = brake.G2 * d + gAcc * gAcc;
+  const nrm = Math.hypot(...brake.S);
+  if (nrm > 0) brake.axis = brake.S.map(x => x / nrm);
+  // Sanity check: the phone's average acceleration over a fix interval should equal the GPS acceleration
+  // (ratio near 1). Far from that means the fit is mostly noise.
+  const ratio = brake.G2 > 0 ? nrm / brake.G2 : 0;
+  brake.ready = !!brake.axis && brake.W >= 6 && ratio > 0.5 && ratio < 1.8;
+}
+function brakeMotion(a, now) {
+  if (!brake.on) return;
+  brake.accSum[0] += a[0]; brake.accSum[1] += a[1]; brake.accSum[2] += a[2]; brake.accN++;
+  if (!S.brakeFast || !brake.ready) { brake.lowSince = 0; return; }
+  const dt = Math.min(0.1, (now - (brake.lastMotionAt || now)) / 1000); brake.lastMotionAt = now;
+  const f = a[0] * brake.axis[0] + a[1] * brake.axis[1] + a[2] * brake.axis[2];   // acceleration along the direction of travel
+  brake.fEma += (f - brake.fEma) * (1 - Math.exp(-dt / 0.08));
+  const thr = brakeThr() * 1.2;
+  if (brake.active) { if (brake.fEma < -thr * 0.6) brake.lastDecel = now; return; }
+  if (brake.fEma < -thr) {
+    if (!brake.lowSince) brake.lowSince = now;
+    else if (now - brake.lowSince >= 150 && brake.speed != null && brake.speed >= BRAKE_MIN_V && now - brake.fixAt < 3000) brakeStart('motion');
+  } else brake.lowSince = 0;
+}
+function brakeStart(reason) {
+  if (brake.active || !S.power || !chr) return;
+  const now = performance.now();
+  brake.active = true; brake.since = brake.lastDecel = now; brake.reason = reason; brake.phase = 0; brake.lowSince = 0;
+  pendingColor = null; urgent = true;
+  sendCmd(CMD.color(255, 0, 0));                           // replaces whatever effect is running, at full brightness
+  if (S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); }
+  document.getElementById('preview').style.background = '#f00';
+  brakeUi();
+}
+function brakeEnd() {
+  brake.active = false; brake.phase = -1;
+  if (!brake.on && brake.timer) { clearInterval(brake.timer); brake.timer = null; }
+  if (S.current && S.current.kind === 'builtin') document.getElementById('preview').style.background = 'linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f)';
+  restoreOutput();                                          // bring the effect back
+  brakeUi();
+}
+function brakeTick() {
+  const now = performance.now();
+  if (now - brake.uiAt > 500) { brake.uiAt = now; brakeUi(); }
+  if (!brake.active) return;
+  const stopped = brake.speed != null && brake.speed < 0.7 ? brake.stoppedAt + 4000 : 0; // hold 4 s after coming to a stop
+  const stale = now - brake.fixAt > 5000 && now > brake.forceUntil;                      // GPS gone: let go rather than stay red
+  const alive = Math.max(brake.lastDecel + 900, brake.since + 1300, brake.forceUntil, stopped);
+  if (stale || now > alive) return brakeEnd();
+  if (S.brakeStyle === 'flash' && now - brake.since < 700) {
+    const ph = Math.floor((now - brake.since) / 170) % 2;   // 3 blinks a second, never fully dark
+    if (ph !== brake.phase) { brake.phase = ph; pendingColor = ph ? CMD.color(90, 0, 0) : CMD.color(255, 0, 0); pump(); }
+  } else if (brake.phase !== -2) { brake.phase = -2; pendingColor = CMD.color(255, 0, 0); pump(); }
+}
+function testBrake() {
+  if (!chr) { toast('Connect to the strip first'); return; }
+  if (!brake.timer) brake.timer = setInterval(brakeTick, 50);
+  brake.forceUntil = performance.now() + 2500;
+  brakeStart('test');
 }
 
 /* =====================================================================
@@ -1003,6 +1169,7 @@ function nextFrameTime(t) {
 function tick(now = performance.now()) {
   tVirtual += (now - lastTick) / 1000 * S.speed;
   lastTick = now;
+  if (brake.active) return; // the brake light owns the strip
   if (!S.power || !S.current || S.current.kind !== 'effect') return;
   const e = byId[S.current.id];
   if (e.needs === 'audio') { updateAudio(now); if (audio.beat) urgent = true; }
@@ -1101,6 +1268,7 @@ document.addEventListener('click', keepAwake, { once: true });
 // It must be enabled directly inside a tap handler.
 let noSleep = null;
 function enterRide() {
+  if (S.brakeOn) { if (!brake.on) startBrake(); else if (S.brakeFast && !motion.on) startMotion(true); } // this tap can grant motion access
   try { if (!noSleep && window.NoSleep) noSleep = new NoSleep(); if (noSleep) noSleep.enable(); } catch (e) { console.warn(e); }
   keepAwake();
   const cur = S.current;
@@ -1263,6 +1431,12 @@ bindSlider('bright', v => {
 }, v => v + '%');
 bindSlider('speed', v => { S.speed = v / 100; }, v => (v / 100).toFixed(1) + '×');
 bindSlider('fps', v => { S.fps = v; store('fps', v); if (timer) startEngine(); }, v => v + '/s');
+bindSlider('brakeSens', v => { S.brakeSens = v; store('brakeSens', v); }, v => v);
+document.getElementById('brakeSens').value = S.brakeSens; document.getElementById('brakeSensVal').textContent = S.brakeSens;
+document.getElementById('brakeStyle').value = S.brakeStyle;
+document.getElementById('brakeStyle').addEventListener('change', e => { S.brakeStyle = e.target.value; store('brakeStyle', S.brakeStyle); });
+document.getElementById('brakeFast').value = S.brakeFast ? '1' : '0';
+document.getElementById('brakeFast').addEventListener('change', e => { S.brakeFast = e.target.value === '1'; store('brakeFast', S.brakeFast); if (S.brakeFast && brake.on) startMotion(); });
 bindSlider('syncDelay', v => { S.syncDelay = v; store('syncDelay', v); }, v => v + 'ms');
 bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); pendingColor = CMD.speed(v); pump(); }, v => v);
 function renderLockOptions() {

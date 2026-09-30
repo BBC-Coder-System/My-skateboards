@@ -60,6 +60,14 @@ My music is mostly **YouTube Music**. The strip's own mic is ruled out (it's und
 
 **Native iPhone app?** Asked 2026-09-30. It would fix effects stopping when the phone locks and remove the need for Bluefy, but **not** YouTube Music audio. The only route is a ReplayKit screen-broadcast extension (Control Center, red indicator, some apps mute capture, unproven with YouTube Music). It needs a Mac + Xcode (I'm on Windows) or cloud builds, plus a $99/yr Apple developer account (free signing expires every 7 days). Decision: stay web for now.
 
+### Brake light (built 2026-09-30, not yet ridden)
+
+Motion tab → 🛑 Brake light. Cruising = the current effect plays normally; when speed drops fast the strip turns full-brightness red (Style: 3 blinks then solid, or solid), and the effect is restored afterwards. Works over solid colours, phone-driven effects, built-ins and Fire 2/3/beat effects (it sets full brightness, then `restoreOutput()` puts everything back). Never pure black (see the disconnect note).
+- **GPS** (`watchPosition`, `coords.speed`, distance fallback): brake when speed was ≥ 2 m/s (7 km/h) and slowing ≥ `brakeThr()` m/s² (Sensitivity 7 → 1.7; 10 → 1.0; 1 → 3.2), or stopped. GPS is ~1 Hz, so alone it's 0–1 s late.
+- **Fast mode** (default on): motion sensor + GPS. At every GPS fix the phone's mean linear acceleration is regressed on the GPS acceleration → learns the phone's "forward" axis with no calibration (decays 3% per informative fix so a shifting phone is re-learned; sanity ratio 0.5–1.8). Then forward deceleration < 1.2× threshold for 150 ms while GPS speed ≥ 2 m/s → brake. Simulated: axis learned to within 0.01 of the truth; hard brake detected after **242 ms vs 740 ms** with GPS only; 0 false alarms in 8 s of noisy cruising.
+- Release: 0.9 s after braking stops (min 1.3 s on), 4 s after coming to a stop, or if GPS goes silent for 5 s.
+- Needs the page alive: **screen on (Ride mode)**, location allowed for Bluefy, motion access (tap Ride mode or the toggle). GPS speed accuracy, Bluefy's location permission and how well fast mode works with a phone in a pocket are **untested on the real board**. Try: ride, brake hard, check the speed readout and whether the light lags. If fast mode false-alarms, set it to GPS only.
+
 ### Flash tab disconnect loop (2026-09-30)
 
 All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip disconnect and reconnect repeatedly. Flow effects were fine. Power: 5000 mAh USB-C power bank → C-to-C L adapter → C-to-A adapter → strip's USB-A plug. Suspects: (1) the controller mishandles colour 0,0,0 and resets; (2) the power bank cuts out at near-zero load or on big current swings. Fix so far: `colorHex` never sends pure black; it sends a faint glow (`DARK_FLOOR` = 4) of the last lit colour. **If drops continue**, especially on Alternate (which never goes black), it's power: test at 40% brightness, then try another power bank or a direct cable.
