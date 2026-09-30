@@ -346,7 +346,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-09-30 diag';
+const APP_BUILD = '2026-09-30 diag2';
 const dlogBuf = load('dlog', []);
 const dstats = { w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -354,7 +354,7 @@ function dctx() {
     const now = performance.now();
     const cur = !S.current ? 'none' : S.current.kind === 'effect' ? byId[S.current.id].name : S.current.kind === 'builtin' ? fxName(S.current.id) : S.current.kind === 'stripmic' ? 'strip mic' : 'solid ' + S.current.id;
     const pps = dstats.w.filter(t => now - t < 5000).length / 5;
-    return `effect="${cur}" bright=${Math.round(S.bright * 100)}% hw=${S.hwBright} fps=${S.fps} pps=${pps.toFixed(1)} up=${dstats.connAt ? Math.round((now - dstats.connAt) / 1000) : '-'}s lastWrite=${lastWriteAt ? Math.round(now - lastWriteAt) : '-'}ms power=${S.power ? 'on' : 'off'} src=${S.audioSrc} brake=${brake.on ? (brake.active ? 'braking' : 'on') : 'off'} screen=${document.hidden ? 'hidden' : 'visible'}`;
+    return `effect="${cur}" bright=${Math.round(S.bright * 100)}% hw=${S.hwBright} fps=${S.fps} pps=${pps.toFixed(1)} up=${dstats.connAt ? Math.round((now - dstats.connAt) / 1000) : '-'}s lastWrite=${lastWriteAt ? Math.round(now - lastWriteAt) : '-'}ms power=${S.power ? 'on' : 'off'} src=${S.audioSrc} brake=${brake.on ? (brake.active ? 'braking' : 'on') : 'off'} screen=${document.hidden ? 'hidden' : 'visible'} link=${chr && device && device.gatt && device.gatt.connected ? 'up' : 'down'}`;
   } catch (e) { return '(context unavailable)'; }
 }
 // every: skip repeats of the same message within N ms (so an error loop can't flood the log)
@@ -1408,6 +1408,7 @@ function handOffToStrip() {
   pendingColor = null; cmdQueue.length = 0;
   clearTimeout(pumpTimer); pumpTimer = null;
   const e = byId[S.current.id];
+  dlog('HAND-OFF', e.start ? 'left "' + e.name + '" running on the strip, brightness ' + Math.round(S.bright * 100) + '%' : 'sent built-in ' + fxName(S.lockMode) + ' (phone effect "' + e.name + '" stops while locked)');
   if (e.start) {
     // The flame keeps moving on the strip; only the phone's flicker stops, so leave it at full level.
     S.hwBright = Math.round(S.bright * 100);
@@ -1423,6 +1424,7 @@ document.addEventListener('visibilitychange', () => {
     handOffToStrip();
   } else {
     handedOff = false;
+    if (chr && device && device.gatt && !device.gatt.connected) { dlog('LINK LOST while hidden', ''); onDisconnected(); }
     keepAwake();
     if (S.current && S.current.kind === 'effect' && S.power) { lastColorHex = ''; startEngine(); }
     if (device && !chr && !userDisconnect) reconnect();
