@@ -278,6 +278,12 @@
       <div class="grid4" id="wireBtns" style="grid-template-columns:repeat(3,1fr)"></div>
       <div class="hint" id="wireHint">Pick an order, then check: the strip should show <b style="color:#f55">red</b>.</div>
 
+      <div class="label" style="margin-top:12px">Bluetooth write mode</div>
+      <select id="writeMode" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
+        <option value="ack">Acknowledged (steady, default)</option>
+        <option value="fast">Fast (may look smoother, try it for music)</option>
+      </select>
+
       <div class="label" style="margin-top:12px">Music colour packets</div>
       <select id="musicFlag" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
         <option value="32">Official style (music marker, default)</option>
@@ -346,7 +352,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-09-30 diag2';
+const APP_BUILD = '2026-09-30 smooth';
 const dlogBuf = load('dlog', []);
 const dstats = { w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -376,7 +382,7 @@ function renderLog() {
 }
 function logHeader() {
   return [`Board Lights diagnostics · build ${APP_BUILD}`, `time ${new Date().toString().slice(0, 33)}`,
-    `device ${(typeof device !== 'undefined' && device && device.name) || '-'} · ackedWrites=${useAck} · fps=${S.fps} · brakeFast=${S.brakeFast} · musicFlag=${S.musicFlag}`,
+    `device ${(typeof device !== 'undefined' && device && device.name) || '-'} · ackedWrites=${useAck && !S.fastWrite} · fps=${S.fps} · brakeFast=${S.brakeFast} · musicFlag=${S.musicFlag}`,
     `browser ${navigator.userAgent.slice(0, 110)}`, '---'].join('\n');
 }
 async function copyLog() {
@@ -401,7 +407,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  fastWrite: load('fastWrite', false), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -450,7 +456,7 @@ function pump() {
 // Prefer acknowledged writes when the strip supports them: the strip then sets the pace and can't be flooded.
 let useAck = true;
 function rawWrite(bytes) {
-  if (useAck && chr.properties.write && typeof chr.writeValueWithResponse === 'function') {
+  if (!S.fastWrite && useAck && chr.properties.write && typeof chr.writeValueWithResponse === 'function') {
     return chr.writeValueWithResponse(bytes).catch(e => { useAck = false; throw e; });
   }
   return chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
@@ -651,6 +657,11 @@ function sampleAudio() {
 }
 function applyFrame(f, now, detect) {
   audio.bass = f.bass; audio.mid = f.mid; audio.treble = f.treble;
+  // "Whitened" bands: each band relative to its own ~4 s average. A sustained band (vocals, chords, a speaker
+  // that only plays mids) then sits low and only pops when it rises, so the colours show what changes.
+  const wdt = Math.min(0.2, (now - (audio.wbT || now)) / 1000); audio.wbT = now;
+  const wa = 1 - Math.exp(-wdt / 4), mean = audio.mean || (audio.mean = { bass: f.bass, mid: f.mid, treble: f.treble }), wb = audio.wb || (audio.wb = {});
+  for (const k of ['bass', 'mid', 'treble']) { mean[k] += (f[k] - mean[k]) * wa; wb[k] = Math.max(0, Math.min(1, (f[k] - 0.5 * mean[k]) / (1.5 * mean[k] + 0.05))); }
   audio.level = f.bass * 0.6 + f.mid * 0.3 + f.treble * 0.1;
   // Beat = a sudden rise in bass (onset), compared with how much it usually rises. Comparing the bass
   // *level* to its average fails with loud bass-heavy music: the average saturates and nothing triggers.
@@ -1128,6 +1139,14 @@ function testBrake() {
   brakeStart('test');
 }
 
+// Time-based smoothing. The old effects faded by a fixed amount per frame ("x0.6 each frame"), which is only
+// 2-3 visible steps at ~20 frames/s and wobbles with every late frame. These follow a target with a time
+// constant (fast attack, slower release) measured in real seconds, so every flash and fade has the same
+// smooth shape however the frames are spaced.
+function frameDt(st) { const now = performance.now(), dt = Math.min(0.2, (now - (st._t || now)) / 1000); st._t = now; return dt; }
+function follow(cur, target, dt, atk, rel) { return cur + (target - cur) * (1 - Math.exp(-dt / (target > cur ? atk : rel))); }
+const decay = (v, dt, tau) => v * Math.exp(-dt / tau);
+
 /* =====================================================================
    EFFECTS: each returns [r,g,b] (0-255) for time t (seconds × speed).
    p = params, st = per-run scratch state.
@@ -1227,56 +1246,82 @@ const EFFECTS = [
 
   // ---- Music ----
   { id: 'mpulse', group: 'music', name: 'Volume pulse', desc: 'Brightness follows the music', needs: 'audio',
-    params: { color: { type: 'color', v: '#a855f7' }, gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 } },
-    fn: (t, p) => scale(hexToRgb(p.color), Math.min(1, audio.level * p.gain) ** 1.5) },
-  { id: 'mbeat', group: 'music', name: 'Beat hop', desc: 'New colour on every beat', needs: 'audio',
-    params: { gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 }, step: { label: 'Hue jump', min: 10, max: 180, step: 5, v: 60 } },
-    fn: (t, p, st) => { st.k = audio.beat ? 1 : (st.k || 0) * 0.85; return hsv(audio.beatCount * p.step, 1, Math.max(0.15, Math.min(1, st.k + audio.level * p.gain * 0.5))); } },
-  // What the official app's phone-mic mode does on this strip: a random colour, with brightness following the loudness.
-  { id: 'mparty', group: 'music', name: 'Party (official style)', desc: 'Random colours, brightness follows the loudness', needs: 'audio',
+    params: { color: { type: 'color', v: '#a855f7' }, gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 },
+      glow: { label: 'Glow between', min: 0, max: 0.5, step: 0.05, v: 0.08 }, smooth: { label: 'Smoothness', min: 0, max: 1, step: 0.05, v: 0.5 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st);
+      st.v = follow(st.v || 0, Math.min(1, audio.level * p.gain), dt, 0.035, 0.08 + 0.32 * p.smooth);
+      return scale(hexToRgb(p.color), p.glow + (1 - p.glow) * st.v ** 1.4);
+    } },
+  { id: 'mbeat', group: 'music', name: 'Beat hop', desc: 'Colour glides to a new hue on every beat', needs: 'audio',
+    params: { gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 }, step: { label: 'Hue jump', min: 10, max: 180, step: 5, v: 60 },
+      fade: { label: 'Colour glide (s)', min: 0.02, max: 0.4, step: 0.01, v: 0.12 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st);
+      if (st.tgt === undefined) { st.tgt = 0; st.h = 0; st.k = 0; }
+      if (audio.beat) { st.tgt += p.step; st.k = 1; }
+      st.h += (st.tgt - st.h) * (1 - Math.exp(-dt / p.fade));            // glide toward the new hue instead of jumping
+      st.k = decay(st.k, dt, 0.2);
+      st.b = follow(st.b || 0, 0.2 + 0.8 * Math.max(st.k, Math.min(1, audio.level * p.gain * 0.6)), dt, 0.03, 0.12);
+      return hsv(st.h, 1, st.b);
+    } },
+  // What the official app's phone-mic mode does on this strip: a random colour, brightness following the loudness.
+  { id: 'mparty', group: 'music', name: 'Party (official style)', desc: 'New colours, brightness follows the loudness', needs: 'audio',
     params: {
-      change: { type: 'select', label: 'New colour', v: 1, options: [[1, 'Every update (like the official app)'], [2, 'Every beat']] },
+      change: { type: 'select', label: 'New colour', v: 2, options: [[2, 'Every beat'], [1, 'Constantly (like the official app)']] },
       floor: { label: 'Quiet level', min: 0, max: 0.5, step: 0.05, v: 0.05 },
-      punch: { label: 'Beat punch', min: 0, max: 1, step: 0.05, v: 0.5 },
+      punch: { label: 'Beat punch', min: 0, max: 1, step: 0.05, v: 0.6 },
+      fade: { label: 'Colour glide (s)', min: 0.02, max: 0.4, step: 0.01, v: 0.08 },
     },
     fn: (t, p, st) => {
-      st.lv = Math.max(audio.level * 1.6, (st.lv || 0) * 0.75);                 // instant attack, quick fall
-      if (st.h === undefined || (+p.change === 1 && st.lv > 0.05) || audio.beat) st.h = Math.random() * 360; // no colour churn in silence
-      st.k = audio.beat ? 1 : (st.k || 0) * 0.8;
-      const b = p.floor + (1 - p.floor) * Math.min(1, st.lv * (1 - p.punch) + st.k * p.punch);
-      return hsv(st.h, 1, b);
+      const dt = frameDt(st), now = performance.now();
+      st.lv = follow(st.lv || 0, Math.min(1, audio.level * 1.6), dt, 0.03, 0.14);
+      st.k = audio.beat ? 1 : decay(st.k || 0, dt, 0.16);
+      if (st.tgt === undefined) { st.tgt = st.h = Math.random() * 360; st.lastHue = now; }
+      if (audio.beat || (+p.change === 1 && st.lv > 0.05 && now - st.lastHue > 150)) { st.tgt += 50 + Math.random() * 90; st.lastHue = now; }
+      st.h += (st.tgt - st.h) * (1 - Math.exp(-dt / p.fade));
+      return hsv(st.h, 1, p.floor + (1 - p.floor) * Math.min(1, st.lv * (1 - p.punch) + st.k * p.punch));
     } },
-  { id: 'mspec', group: 'music', name: 'Spectrum', desc: 'Bass=red, mids=green, highs=blue', needs: 'audio',
-    params: { gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1.2 } },
-    fn: (t, p) => [audio.bass, audio.mid, audio.treble].map(x => 255 * Math.min(1, x * p.gain) ** 1.6) },
-  // A built-in moving effect (keeps its motion along the strip) that pumps brightness, and optionally speed, with the beat.
+  { id: 'mspec', group: 'music', name: 'Spectrum', desc: 'Bass = red, mids = green, highs = blue (what changes)', needs: 'audio',
+    params: { gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st), w = audio.wb || { bass: 0, mid: 0, treble: 0 };
+      st.c = st.c || [0, 0, 0];
+      [w.bass, w.mid, w.treble].forEach((x, i) => { st.c[i] = follow(st.c[i], Math.min(1, x * p.gain), dt, 0.05, 0.2); });
+      return st.c.map(x => 255 * x ** 1.3);
+    } },
+  // A built-in moving effect (keeps its motion along the strip) that pumps brightness deeply, and its speed, with the beat.
   { id: 'mbuiltin', group: 'music', name: 'Built-in on the beat', desc: 'A moving strip effect that pumps with the beat', needs: 'audio',
     params: {
       fx: { type: 'select', label: 'Effect', v: 103, restart: true,
         options: [[103, '7-colour running'], [83, '7-colour wave'], [85, 'R-G-B wave'], [23, '7-colour tail'], [39, '7-colour water'], [1, 'Magic forward'], [205, 'Red marquee']] },
       flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 50 },
-      low: { label: 'Between beats', min: 0.05, max: 0.9, step: 0.05, v: 0.3 },
+      low: { label: 'Between beats', min: 0.02, max: 0.9, step: 0.02, v: 0.08 },
       kick: { label: 'Speed kick', min: 0, max: 1, step: 0.05, v: 0.3 },
     },
     start: (p, st) => { st.flow = fireFlow(p); st.k = 0; sendCmd(CMD.mode(p.fx)); sendCmd(CMD.speed(st.flow)); },
     drive: (t, p, st) => {
-      const flow = fireFlow(p);
+      const dt = frameDt(st), flow = fireFlow(p);
       if (st.flow !== flow) { st.flow = flow; sendCmd(CMD.speed(flow)); }
-      if (audio.beat) {
-        st.k = 1;
-        const peak = Math.max(3, Math.min(100, Math.round(S.bright * 100)));
-        pendingColor = null; S.hwBright = peak; sendCmd(CMD.bright(peak)); // the visible pulse: first in line
-        if (p.kick > 0) { sendCmd(CMD.speed(Math.min(100, Math.round(flow * (1 + p.kick))))); st.kicked = true; }
-      } else st.k *= 0.75;
+      const beat = audio.beat;
+      if (beat) st.k = 1; else st.k = decay(st.k || 0, dt, 0.22);
+      // The strip's brightness looks nearly linear-in-power, so a 30%..100% swing is hardly visible; the pulse goes
+      // much deeper (default 8%) and is shaped with a curve so the low end is actually dark.
+      const lvl = p.low + (1 - p.low) * Math.max(st.k, Math.min(1, audio.level * 1.2) * 0.6);
+      const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * lvl ** 1.8)));
+      if (beat) { pendingColor = null; S.hwBright = b; sendCmd(CMD.bright(b)); } // the pulse goes out first
+      else if (Math.abs(b - S.hwBright) >= 3 || (b <= 5 && b !== S.hwBright)) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
+      if (beat && p.kick > 0) { sendCmd(CMD.speed(Math.min(100, Math.round(flow * (1 + p.kick))))); st.kicked = true; }
       if (st.kicked && st.k < 0.3) { sendCmd(CMD.speed(flow)); st.kicked = false; }
-      const lvl = p.low + (1 - p.low) * Math.max(st.k, Math.min(1, audio.level * 1.2));
-      const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * lvl)));
-      if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); }
-      document.getElementById('preview').style.background = `linear-gradient(90deg,${[0, 60, 120, 180, 240, 300].map(h => `hsl(${h + t * 40},100%,${Math.round(10 + 45 * lvl)}%)`).join(',')})`;
+      document.getElementById('preview').style.background = `linear-gradient(90deg,${[0, 60, 120, 180, 240, 300].map(h => `hsl(${h + t * 40},100%,${Math.round(8 + 47 * lvl ** 1.8)}%)`).join(',')})`;
     } },
   { id: 'mflash', group: 'music', name: 'Beat strobe', desc: 'White flash on the beat', needs: 'audio',
-    params: { color: { type: 'color', v: '#ffffff' }, base: { type: 'color', v: '#1e1b4b' } },
-    fn: (t, p, st) => { st.k = audio.beat ? 1 : (st.k || 0) * 0.6; return mix(hexToRgb(p.base), hexToRgb(p.color), st.k); } },
+    params: { color: { type: 'color', v: '#ffffff' }, base: { type: 'color', v: '#1e1b4b' }, len: { label: 'Flash length (s)', min: 0.05, max: 0.4, step: 0.01, v: 0.16 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st);
+      st.k = audio.beat ? 1 : decay(st.k || 0, dt, p.len);
+      return mix(scale(hexToRgb(p.base), 0.6 + 0.4 * Math.min(1, audio.level * 1.5)), hexToRgb(p.color), st.k);
+    } },
 
   // ---- Motion ----
   { id: 'jolt', group: 'motion', name: 'Jolt flash', desc: 'Flash on bumps, landings and stops', needs: 'motion',
@@ -1618,6 +1663,8 @@ function renderLockOptions() {
   document.getElementById('lockMode').value = S.lockMode;
 }
 renderLockOptions();
+document.getElementById('writeMode').value = S.fastWrite ? 'fast' : 'ack';
+document.getElementById('writeMode').addEventListener('change', e => { S.fastWrite = e.target.value === 'fast'; store('fastWrite', S.fastWrite); dlog('write mode', S.fastWrite ? 'fast (no acknowledgement)' : 'acknowledged'); });
 document.getElementById('musicFlag').value = String(S.musicFlag);
 document.getElementById('musicFlag').addEventListener('change', e => { S.musicFlag = +e.target.value; store('musicFlag', S.musicFlag); });
 document.getElementById('fxCmd').value = S.legacyFx ? 'legacy' : 'app';
@@ -1672,7 +1719,14 @@ function toast(msg) { const t = document.getElementById('toast'); t.textContent 
 
 dlog('app started', 'build ' + APP_BUILD);
 setInterval(() => { if (chr) dlog('status', dctx()); }, 60000);
-if (load('musicV', 0) < 2) { for (const id of ['mpulse', 'mbeat', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 2); }
+// While a music effect runs: what the app is hearing/locked to, every 10 s (so a test track with a known tempo can be checked against the log)
+setInterval(() => {
+  if (!chr || !S.current || S.current.kind !== 'effect' || byId[S.current.id].needs !== 'audio') { dstats.bc = audio.beatCount; return; }
+  const beats = audio.beatCount - (dstats.bc || 0); dstats.bc = audio.beatCount;
+  const now = performance.now(), pps = dstats.w.filter(t => now - t < 10000).length / 10;
+  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.bpm.toFixed(1)} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)}`);
+}, 10000);
+if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
 selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;
 document.getElementById('syncDelay').value = S.syncDelay; document.getElementById('syncDelayVal').textContent = S.syncDelay + 'ms';
