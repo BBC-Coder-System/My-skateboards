@@ -60,6 +60,17 @@ My music is mostly **YouTube Music**. The strip's own mic is ruled out (it's und
 
 **Native iPhone app?** Asked 2026-09-30. It would fix effects stopping when the phone locks and remove the need for Bluefy, but **not** YouTube Music audio. The only route is a ReplayKit screen-broadcast extension (Control Center, red indicator, some apps mute capture, unproven with YouTube Music). It needs a Mac + Xcode (I'm on Windows) or cloud builds, plus a $99/yr Apple developer account (free signing expires every 7 days). Decision: stay web for now.
 
+### Music upgrade after "doesn't work like the official app" (2026-09-30, not yet tried on the strip)
+
+Feedback: compared with the official Phone MIC and Device MIC, ours (Tempo tap, Tempo + Auto-listen, Phone mic) felt **late, didn't follow the music, less lively, too weak or too harsh**. What LotusLamp X actually does for a non-"drums" strip like MELK-OA10 (`SYPhoneMicFragment`, `SYMusicFragment`, `AudioToRGB`): phone mic / player → **random colour per update, brightness = loudness (5–100%), black when quiet**, sent as `7E 07 05 03 RR GG BB 20 EF` (last byte **0x20** = "music colour", ours was 0x10). `setDrums` is only for names containing `~`. Device mic = the strip's own modes 128–135 (`7e0703 MM 04ffff00ef`, sensitivity `7e0706 SS ffffff00ef`).
+What changed:
+- **Automatic gain per band** (`agcNorm`: divide by a ~10 s decaying peak, 15% noise gate), so quiet and loud sources look the same (test: a track at 6% volume gave the same brightness range as full volume). Old fixed gains were the "too weak / too harsh". Default sensitivities are now 1.0.
+- **Music colour flag 0x20** on colour frames of music effects (Settings → Music colour packets to switch back to 0x10 if it looks wrong).
+- **Lower latency** in Phone mic / Player: analyser smoothing 0.5 → 0.15, and a detected beat immediately runs a frame (`kickFrame`) instead of waiting up to ~67 ms.
+- New effect **Party (official style)**: random colour every update (or every beat), brightness follows loudness, no colour churn in silence.
+- **Tempo + Auto-listen is now a hybrid**: exact beat timing from the grid, but each beat's strength (learned per position in the 4-beat bar from the 220 ms after each beat) and the mids/highs follow the real sound, and the lights calm down when the music stops. **Tap-only Tempo can't hear the music, so it can't follow dynamics** by design.
+- New source **🎙 Strip**: the controller's own mic modes (Energy/Rhythm/Spectrum/Scroll 1 and 2) + sensitivity. No Bluetooth delay, moves along the strip, keeps running with the phone locked, but hears the wheels. Commands from the app, **not yet confirmed on the strip**.
+
 ### Brake light (built 2026-09-30, not yet ridden)
 
 Motion tab → 🛑 Brake light. Cruising = the current effect plays normally; when speed drops fast the strip turns full-brightness red (Style: 3 blinks then solid, or solid), and the effect is restored afterwards. Works over solid colours, phone-driven effects, built-ins and Fire 2/3/beat effects (it sets full brightness, then `restoreOutput()` puts everything back). Never pure black (see the disconnect note).

@@ -134,7 +134,8 @@
       <div class="row" id="srcBtns" style="margin-top:0">
         <button class="small" data-src="tempo">👆 Tempo</button>
         <button class="small" data-src="player">🎵 Player</button>
-        <button class="small" data-src="mic">🎤 Mic</button>
+        <button class="small" data-src="mic">🎤 Phone</button>
+        <button class="small" data-src="strip">🎙 Strip</button>
       </div>
 
       <div id="src-tempo" class="hidden">
@@ -176,6 +177,13 @@
         <audio id="player" playsinline preload="auto"></audio>
       </div>
 
+      <div id="src-strip" class="hidden">
+        <div class="hint">The strip's <b>own microphone</b> drives its built-in music effects. There's no Bluetooth delay and the effects run <b>along</b> the strip, so this is the liveliest option, and it keeps going with the phone locked. The catch: the mic is on the controller under the board, so it also hears the wheels and the road.</div>
+        <div class="slider"><label>Style</label><select id="stripStyle" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"></select></div>
+        <div class="slider"><label>Sensitivity</label><input type="range" id="stripSens" min="0" max="100" value="50"><span class="val" id="stripSensVal">50</span></div>
+        <button class="small primary" style="width:100%" onclick="startStripMic()">▶ Start strip mic</button>
+      </div>
+
       <div id="src-mic" class="hidden">
         <div class="hint">Uses the phone's microphone. Works with any music, but it hears everything around you, including the wheels.</div>
       </div>
@@ -183,7 +191,7 @@
       <div id="meter"><div></div></div>
       <div class="hint" id="micHint"></div>
     </div>
-    <div class="card">
+    <div class="card" id="musicFxCard">
       <div class="label">Music effects</div>
       <div class="tiles" data-group="music"></div>
     </div>
@@ -261,6 +269,12 @@
       <div class="grid4" id="wireBtns" style="grid-template-columns:repeat(3,1fr)"></div>
       <div class="hint" id="wireHint">Pick an order, then check: the strip should show <b style="color:#f55">red</b>.</div>
 
+      <div class="label" style="margin-top:12px">Music colour packets</div>
+      <select id="musicFlag" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
+        <option value="32">Official style (music marker, default)</option>
+        <option value="16">Normal (try if music colours look wrong)</option>
+      </select>
+
       <div class="label" style="margin-top:12px">Built-in effect command</div>
       <select id="fxCmd" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
         <option value="app">LotusLamp X style (default)</option>
@@ -297,7 +311,11 @@ const CMD = {
   login:  ['7e0783', '7e0404'],
   on:     '7e0404f00001ff00ef',
   off:    '7e0404000000ff00ef',
-  color:  (r, g, b) => '7e070503' + h2(r) + h2(g) + h2(b) + '10ef',
+  // Last colour byte: 0x10 = normal colour, 0x20 = "music" colour (what LotusLamp X sends from its phone-mic and player modes).
+  color:  (r, g, b, flag = 0x10) => '7e070503' + h2(r) + h2(g) + h2(b) + h2(flag) + 'ef',
+  // The strip's own microphone (LotusLamp X setSymphonyMicRhythmMode / sens): modes 128-135, sensitivity 0-100.
+  micMode: n => '7e0703' + h2(n) + '04ffff00ef',
+  micSens: v => '7e0706' + h2(v) + 'ffffff00ef',
   // From the LotusLamp X app (BlePackagingDevice.setSymphonyMode / speed / setRGBBrightness).
   mode:   n => S.legacyFx ? '7e0503' + h2(n) + '03ffff00ef' : '7e0703' + h2(n) + '06ffff00ef', // built-in effect n (0-233), see SY_MODES
   // legacy form is the older ELK-BLEDOM command; the probe confirmed it (#156 moved along the strip)
@@ -329,6 +347,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
+  musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -390,7 +409,8 @@ function colorHex(rgb) {
   if (m >= DARK_FLOOR) lastLit = out;
   else { const lm = Math.max(...lastLit) || 1; out = lastLit.map(v => Math.max(0, (v / lm) * DARK_FLOOR)); }
   document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
-  return CMD.color(...out);
+  const music = S.current && S.current.kind === 'effect' && byId[S.current.id] && byId[S.current.id].needs === 'audio';
+  return CMD.color(...out, music ? S.musicFlag : 0x10);
 }
 function sendColor(rgb) { pendingColor = colorHex(rgb); pump(); }
 
@@ -503,7 +523,32 @@ function getCtx() {
   if (audio.ctx.state === 'suspended') audio.ctx.resume();
   return audio.ctx;
 }
-function makeAnalyser() { const an = getCtx().createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = 0.5; return an; }
+function makeAnalyser(smoothing = 0.15) { const an = getCtx().createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = smoothing; return an; }
+function bandsOf(an) {
+  if (!an._buf || an._buf.length !== an.frequencyBinCount) an._buf = new Uint8Array(an.frequencyBinCount);
+  an.getByteFrequencyData(an._buf);
+  const bins = an._buf.length, hz = audio.ctx.sampleRate / 2 / bins;
+  const band = (lo, hi) => { let t = 0, n = 0; for (let i = Math.floor(lo / hz); i < Math.min(bins, hi / hz); i++) { t += an._buf[i]; n++; } return n ? t / n / 255 : 0; };
+  return { bass: band(30, 180), mid: band(180, 2000), treble: band(2000, 8000) };
+}
+// Automatic gain: every band is divided by its own recent peak (falls off over ~10 s), and anything under
+// 15% of that peak reads as silence. Music therefore fills the full 0..1 range at any volume or distance
+// from the speaker (a fixed gain was too weak when quiet and clipped when loud), and quiet passages go dark.
+const AGC_FLOOR = 0.12, AGC_GATE = 0.15;
+const agc = { mic: { bass: 0, mid: 0, treble: 0 }, play: { bass: 0, mid: 0, treble: 0 }, tempo: { bass: 0, mid: 0, treble: 0 } };
+function agcNorm(ag, raw) {
+  const out = {};
+  for (const k of ['bass', 'mid', 'treble']) {
+    ag[k] = Math.max(raw[k], ag[k] * 0.9975, AGC_FLOOR);
+    out[k] = Math.max(0, (raw[k] / ag[k] - AGC_GATE) / (1 - AGC_GATE));
+  }
+  return out;
+}
+// A beat found in live audio gets its frame right away instead of waiting up to a whole frame.
+function kickFrame() {
+  if (!timer || !S.current || S.current.kind !== 'effect' || byId[S.current.id].needs !== 'audio' || brake.active) return;
+  clearTimeout(timer); nextFrameAt = performance.now(); runFrame();
+}
 async function startMic() {
   if (audio.micAn) { getCtx(); return true; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -512,7 +557,7 @@ async function startMic() {
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    audio.micAn = makeAnalyser();
+    audio.micAn = makeAnalyser(0.15);
     audio.micSrc = getCtx().createMediaStreamSource(stream);
     audio.micSrc.connect(audio.micAn);
     micHint('Listening 🎤');
@@ -522,7 +567,7 @@ async function startMic() {
 function ensurePlayerGraph() {
   if (audio.playAn) { getCtx(); return; }
   // Route the player through an analyser and on to the speaker (without .connect(destination) it'd be silent).
-  audio.playAn = makeAnalyser();
+  audio.playAn = makeAnalyser(0.15);
   getCtx().createMediaElementSource(playerEl()).connect(audio.playAn);
   audio.playAn.connect(audio.ctx.destination);
 }
@@ -532,13 +577,10 @@ function sampleAudio() {
   if (S.audioSrc === 'tempo') { if (!(timer && tempoLocked())) sampleTempo(now); return; } // otherwise the engine does it on the beat grid
   const an = S.audioSrc === 'mic' ? audio.micAn : audio.playAn;
   if (!an || (S.audioSrc === 'player' && playerEl().paused)) { applyFrame({ bass: audio.bass * 0.8, mid: audio.mid * 0.8, treble: audio.treble * 0.8 }, now, false); return; }
-  if (!audio.buf || audio.buf.length !== an.frequencyBinCount) audio.buf = new Uint8Array(an.frequencyBinCount);
-  an.getByteFrequencyData(audio.buf);
-  const bins = audio.buf.length, hz = audio.ctx.sampleRate / 2 / bins;
-  const band = (lo, hi) => { let t = 0, n = 0; for (let i = Math.floor(lo / hz); i < Math.min(bins, hi / hz); i++) { t += audio.buf[i]; n++; } return n ? t / n / 255 : 0; };
+  const nb = agcNorm(S.audioSrc === 'mic' ? agc.mic : agc.play, bandsOf(an));
   // The speaker plays late, so the player's analysis is held back by the sync delay before it drives the lights.
   const delay = S.audioSrc === 'player' ? S.syncDelay : 0;
-  audio.hist.push({ t: now, bass: band(30, 180), mid: band(180, 2000), treble: band(2000, 8000) });
+  audio.hist.push({ t: now, bass: nb.bass, mid: nb.mid, treble: nb.treble });
   while (audio.hist.length > 1 && audio.hist[1].t <= now - delay) audio.hist.shift();
   if (audio.hist.length > 60) audio.hist.splice(0, audio.hist.length - 60);
   if (audio.hist[0].t <= now - delay) applyFrame(audio.hist[0], now, true);
@@ -551,15 +593,40 @@ function applyFrame(f, now, detect) {
   const rise = Math.max(0, f.bass - (audio.prevBass ?? f.bass));
   audio.prevBass = f.bass;
   audio.avg = audio.avg * 0.9 + rise * 0.1;
-  if (detect && rise > audio.avg * 2 + 0.04 && f.bass > 0.15 && now - audio.lastBeat > 200) { audio.lastBeat = now; audio.beatCount++; flashBeat(); }
+  if (detect && rise > audio.avg * 2 + 0.04 && f.bass > 0.15 && now - audio.lastBeat > 200) { audio.lastBeat = now; audio.beatCount++; flashBeat(); kickFrame(); }
   document.querySelector('#meter > div').style.width = Math.min(100, audio.level * 160) + '%';
 }
 function sampleTempo(now) {
   // Synthesised music: a kick on every beat (stronger on the first of each 4), hats on the off-beats.
   const period = 60000 / S.bpm, x = (now - tempo.t0) / period + 1e-6, idx = Math.floor(x), frac = x - idx; // epsilon: a frame exactly on the beat counts as the beat
-  if (idx !== tempo.lastIdx) { tempo.lastIdx = idx; audio.beatCount++; audio.lastBeat = now; flashBeat(); }
+  // Hybrid: with Auto-listen the mic is already running, so the exact beat timing stays on the grid but the
+  // strength of each beat and the mids/highs follow the real sound, and the lights calm down when the music does.
+  let real = null;
+  if (auto.on && audio.micAn) real = agcNorm(agc.tempo, bandsOf(audio.micAn));
+  // A beat's true loudness only reaches the mic after the beat, so it can't be known when the beat fires.
+  // Instead the loudness measured in the 220 ms after each beat is remembered for that position in the bar
+  // (4 beats), and used for the same position next time round; kicks and snares usually repeat every bar.
+  if (real) {
+    const since = (frac * period);
+    if (since < 220) tempo.beatPeak = Math.max(tempo.beatPeak || 0, real.bass);
+    else if (!tempo.committed && tempo.cur !== undefined) {
+      const m = ((tempo.cur % 4) + 4) % 4; tempo.bar = tempo.bar || [0.8, 0.8, 0.8, 0.8];
+      tempo.bar[m] = 0.5 * tempo.bar[m] + 0.5 * (0.45 + 0.55 * Math.min(1, (tempo.beatPeak || 0) * 1.3));
+      tempo.committed = true;
+    }
+  }
+  if (idx !== tempo.lastIdx) {
+    tempo.lastIdx = idx; audio.beatCount++; audio.lastBeat = now; flashBeat();
+    tempo.cur = idx; tempo.beatPeak = 0; tempo.committed = false;
+    tempo.strength = real ? (tempo.bar || [0.8, 0.8, 0.8, 0.8])[((idx % 4) + 4) % 4] : 1;
+  }
   const accent = ((idx % 4) + 4) % 4 === 0 ? 1 : 0.75;
-  applyFrame({ bass: accent * Math.exp(-frac * 6), mid: 0.15 + 0.45 * accent * Math.exp(-frac * 3), treble: 0.35 * Math.exp(-((frac * 2) % 1) * 6) }, now, false);
+  let f = { bass: accent * Math.exp(-frac * 6), mid: 0.15 + 0.45 * accent * Math.exp(-frac * 3), treble: 0.35 * Math.exp(-((frac * 2) % 1) * 6) };
+  if (real) {
+    const calm = 0.25 + 0.75 * Math.min(1, (real.bass * 0.6 + real.mid * 0.3 + real.treble * 0.1) * 4);
+    f = { bass: f.bass * (tempo.strength || 1) * calm, mid: (0.4 * f.mid + 0.6 * real.mid) * calm, treble: (0.4 * f.treble + 0.6 * real.treble) * calm };
+  }
+  applyFrame(f, now, false);
 }
 function updateAudio(now) { // once per engine tick
   if (S.audioSrc === 'tempo') sampleTempo(now);
@@ -582,13 +649,28 @@ async function ensureAudio() {
 // ---- source picker ----
 function selectSource(src, init) {
   S.audioSrc = src; store('audioSrc', src);
-  ['tempo', 'player', 'mic'].forEach(k => document.getElementById('src-' + k).classList.toggle('hidden', k !== src));
+  ['tempo', 'player', 'mic', 'strip'].forEach(k => document.getElementById('src-' + k).classList.toggle('hidden', k !== src));
+  document.getElementById('musicFxCard').classList.toggle('hidden', src === 'strip');
   document.querySelectorAll('#srcBtns [data-src]').forEach(b => b.classList.toggle('primary', b.dataset.src === src));
   micHint('');
   startSampler();
   if (src === 'mic' && !init) startMic(); // the mic prompt should come from a tap, not page load
+  if (src === 'strip' && !init) startStripMic();
 }
 document.getElementById('srcBtns').addEventListener('click', ev => { const b = ev.target.closest('[data-src]'); if (b) selectSource(b.dataset.src); });
+
+// ---- strip mic (the controller's own microphone modes) ----
+const STRIP_MODES = [[128, 'Energy 1'], [129, 'Rhythm 1'], [130, 'Spectrum 1'], [131, 'Scroll 1'], [132, 'Energy 2'], [133, 'Rhythm 2'], [134, 'Spectrum 2'], [135, 'Scroll 2']];
+function sendStripMic() { sendCmd(CMD.micMode(S.stripMode)); sendCmd(CMD.micSens(S.stripSens)); S.hwBright = 100; applyHwBright(); }
+function startStripMic() {
+  if (!chr) { toast('Connect to the strip first'); return; }
+  stopEngine(); leaveBuiltin();
+  S.current = { kind: 'stripmic' };
+  ensureOn(); sendStripMic();
+  document.getElementById('preview').style.background = 'linear-gradient(90deg,#0ff,#f0f,#ff0,#0ff)';
+  renderActive(); renderParams();
+  micHint('The strip is listening with its own microphone. Pick any effect to stop it.');
+}
 
 // ---- tempo ----
 function setBpm(v) {
@@ -1079,13 +1161,27 @@ const EFFECTS = [
 
   // ---- Music ----
   { id: 'mpulse', group: 'music', name: 'Volume pulse', desc: 'Brightness follows the music', needs: 'audio',
-    params: { color: { type: 'color', v: '#a855f7' }, gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2 } },
+    params: { color: { type: 'color', v: '#a855f7' }, gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 } },
     fn: (t, p) => scale(hexToRgb(p.color), Math.min(1, audio.level * p.gain) ** 1.5) },
   { id: 'mbeat', group: 'music', name: 'Beat hop', desc: 'New colour on every beat', needs: 'audio',
-    params: { gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2 }, step: { label: 'Hue jump', min: 10, max: 180, step: 5, v: 60 } },
+    params: { gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 }, step: { label: 'Hue jump', min: 10, max: 180, step: 5, v: 60 } },
     fn: (t, p, st) => { st.k = audio.beat ? 1 : (st.k || 0) * 0.85; return hsv(audio.beatCount * p.step, 1, Math.max(0.15, Math.min(1, st.k + audio.level * p.gain * 0.5))); } },
+  // What the official app's phone-mic mode does on this strip: a random colour, with brightness following the loudness.
+  { id: 'mparty', group: 'music', name: 'Party (official style)', desc: 'Random colours, brightness follows the loudness', needs: 'audio',
+    params: {
+      change: { type: 'select', label: 'New colour', v: 1, options: [[1, 'Every update (like the official app)'], [2, 'Every beat']] },
+      floor: { label: 'Quiet level', min: 0, max: 0.5, step: 0.05, v: 0.05 },
+      punch: { label: 'Beat punch', min: 0, max: 1, step: 0.05, v: 0.5 },
+    },
+    fn: (t, p, st) => {
+      st.lv = Math.max(audio.level * 1.6, (st.lv || 0) * 0.75);                 // instant attack, quick fall
+      if (st.h === undefined || (+p.change === 1 && st.lv > 0.05) || audio.beat) st.h = Math.random() * 360; // no colour churn in silence
+      st.k = audio.beat ? 1 : (st.k || 0) * 0.8;
+      const b = p.floor + (1 - p.floor) * Math.min(1, st.lv * (1 - p.punch) + st.k * p.punch);
+      return hsv(st.h, 1, b);
+    } },
   { id: 'mspec', group: 'music', name: 'Spectrum', desc: 'Bass=red, mids=green, highs=blue', needs: 'audio',
-    params: { gain: { label: 'Sensitivity', min: 0.5, max: 5, step: 0.1, v: 2.5 } },
+    params: { gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1.2 } },
     fn: (t, p) => [audio.bass, audio.mid, audio.treble].map(x => 255 * Math.min(1, x * p.gain) ** 1.6) },
   // A built-in moving effect (keeps its motion along the strip) that pumps brightness, and optionally speed, with the beat.
   { id: 'mbuiltin', group: 'music', name: 'Built-in on the beat', desc: 'A moving strip effect that pumps with the beat', needs: 'audio',
@@ -1217,6 +1313,7 @@ function restoreOutput() {
   if (!S.current || !S.power) return;
   if (S.current.kind === 'solid') sendColor(hexToRgb(S.current.id));
   else if (S.current.kind === 'builtin') { sendCmd(CMD.mode(S.current.id)); S.hwBright = 100; applyHwBright(); }
+  else if (S.current.kind === 'stripmic') sendStripMic();
   else { const e = byId[S.current.id]; if (e.start) e.start(S.current.params, scratch); startEngine(); }
 }
 function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPower(); } }
@@ -1272,7 +1369,7 @@ function enterRide() {
   try { if (!noSleep && window.NoSleep) noSleep = new NoSleep(); if (noSleep) noSleep.enable(); } catch (e) { console.warn(e); }
   keepAwake();
   const cur = S.current;
-  document.getElementById('rideName').textContent = !cur ? '' : cur.kind === 'effect' ? byId[cur.id].name : cur.kind === 'builtin' ? fxName(cur.id) : 'Solid colour';
+  document.getElementById('rideName').textContent = !cur ? '' : cur.kind === 'effect' ? byId[cur.id].name : cur.kind === 'builtin' ? fxName(cur.id) : cur.kind === 'stripmic' ? 'Strip mic · ' + (STRIP_MODES.find(m => m[0] === S.stripMode) || [0, ''])[1] : 'Solid colour';
   document.getElementById('ride').classList.remove('hidden');
 }
 function exitRide() {
@@ -1427,7 +1524,7 @@ bindSlider('bright', v => {
   S.bright = v / 100; store('bright', v);
   if (!S.current) return;
   if (S.current.kind === 'solid') sendColor(hexToRgb(S.current.id));
-  else if (S.current.kind === 'builtin') applyHwBright();
+  else if (S.current.kind === 'builtin' || S.current.kind === 'stripmic') applyHwBright();
 }, v => v + '%');
 bindSlider('speed', v => { S.speed = v / 100; }, v => (v / 100).toFixed(1) + '×');
 bindSlider('fps', v => { S.fps = v; store('fps', v); if (timer) startEngine(); }, v => v + '/s');
@@ -1437,6 +1534,11 @@ document.getElementById('brakeStyle').value = S.brakeStyle;
 document.getElementById('brakeStyle').addEventListener('change', e => { S.brakeStyle = e.target.value; store('brakeStyle', S.brakeStyle); });
 document.getElementById('brakeFast').value = S.brakeFast ? '1' : '0';
 document.getElementById('brakeFast').addEventListener('change', e => { S.brakeFast = e.target.value === '1'; store('brakeFast', S.brakeFast); if (S.brakeFast && brake.on) startMotion(); });
+document.getElementById('stripStyle').innerHTML = STRIP_MODES.map(([n, name]) => `<option value="${n}">${name}</option>`).join('');
+document.getElementById('stripStyle').value = S.stripMode;
+document.getElementById('stripStyle').addEventListener('change', e => { S.stripMode = +e.target.value; store('stripMode', S.stripMode); if (S.current && S.current.kind === 'stripmic') { sendCmd(CMD.micMode(S.stripMode)); } });
+bindSlider('stripSens', v => { S.stripSens = v; store('stripSens', v); if (S.current && S.current.kind === 'stripmic') { pendingColor = CMD.micSens(v); pump(); } }, v => v);
+document.getElementById('stripSens').value = S.stripSens; document.getElementById('stripSensVal').textContent = S.stripSens;
 bindSlider('syncDelay', v => { S.syncDelay = v; store('syncDelay', v); }, v => v + 'ms');
 bindSlider('hwSpeed', v => { S.hwSpeed = v; store('hwSpeed', v); pendingColor = CMD.speed(v); pump(); }, v => v);
 function renderLockOptions() {
@@ -1444,6 +1546,8 @@ function renderLockOptions() {
   document.getElementById('lockMode').value = S.lockMode;
 }
 renderLockOptions();
+document.getElementById('musicFlag').value = String(S.musicFlag);
+document.getElementById('musicFlag').addEventListener('change', e => { S.musicFlag = +e.target.value; store('musicFlag', S.musicFlag); });
 document.getElementById('fxCmd').value = S.legacyFx ? 'legacy' : 'app';
 document.getElementById('fxCmd').addEventListener('change', e => { S.legacyFx = e.target.value === 'legacy'; store('legacyFx', S.legacyFx); if (S.current && S.current.kind === 'builtin') sendCmd(CMD.mode(S.current.id)); });
 document.getElementById('lockMode').addEventListener('change', e => { S.lockMode = +e.target.value; store('lockFx', S.lockMode); });
@@ -1467,6 +1571,7 @@ document.querySelectorAll('nav button').forEach(b => b.addEventListener('click',
 /* ---------------- favourites ---------------- */
 function saveFavourite() {
   if (!S.current) { toast('Pick a colour or effect first'); return; }
+  if (S.current.kind === 'stripmic') { toast('Favourites don\'t cover the strip mic yet'); return; }
   const def = S.current.kind === 'effect' ? byId[S.current.id].name : S.current.kind === 'builtin' ? fxName(S.current.id) : 'Colour';
   const name = prompt('Name this favourite:', def);
   if (!name) return;
@@ -1493,6 +1598,7 @@ function clearFavourites() { if (confirm('Delete all favourites?')) { S.favs = [
 let toastT;
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2500); }
 
+if (load('musicV', 0) < 2) { for (const id of ['mpulse', 'mbeat', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 2); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
 selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;
 document.getElementById('syncDelay').value = S.syncDelay; document.getElementById('syncDelayVal').textContent = S.syncDelay + 'ms';
