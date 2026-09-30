@@ -280,8 +280,8 @@
 
       <div class="label" style="margin-top:12px">Bluetooth write mode</div>
       <select id="writeMode" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
-        <option value="ack">Acknowledged (steady, default)</option>
-        <option value="fast">Fast (may look smoother, try it for music)</option>
+        <option value="fast">Fast (default: no waiting for the strip's reply)</option>
+        <option value="ack">Acknowledged (slow on iPhone: about 4 updates a second)</option>
       </select>
 
       <div class="label" style="margin-top:12px">Music colour packets</div>
@@ -352,9 +352,9 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-09-30 smooth';
+const APP_BUILD = '2026-09-30 fastwrite';
 const dlogBuf = load('dlog', []);
-const dstats = { w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
+const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
   try {
     const now = performance.now();
@@ -407,7 +407,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  fastWrite: load('fastWrite', false), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -442,6 +442,7 @@ function pump() {
   inflight = true;
   lastWriteAt = performance.now();
   dstats.w.push(lastWriteAt); if (dstats.w.length > 400) dstats.w.splice(0, dstats.w.length - 400);
+  if (hex.startsWith('7e070503')) { dstats.cv.push([lastWriteAt, Math.max(parseInt(hex.slice(8, 10), 16), parseInt(hex.slice(10, 12), 16), parseInt(hex.slice(12, 14), 16))]); if (dstats.cv.length > 400) dstats.cv.splice(0, dstats.cv.length - 400); }
   const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
   // Watchdog: a write that never settles would otherwise block the queue and freeze the strip.
   const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('write timeout')), 600));
@@ -612,6 +613,7 @@ function agcNorm(ag, raw) {
     ag[k] = Math.max(raw[k], ag[k] * 0.9975, AGC_FLOOR);
     out[k] = Math.max(0, (raw[k] / ag[k] - AGC_GATE) / (1 - AGC_GATE));
   }
+  ag.raw = raw; // kept for the diagnostics log
   return out;
 }
 // A beat found in live audio gets its frame right away instead of waiting up to a whole frame.
@@ -698,7 +700,7 @@ function sampleTempo(now) {
   const accent = ((idx % 4) + 4) % 4 === 0 ? 1 : 0.75;
   let f = { bass: accent * Math.exp(-frac * 6), mid: 0.15 + 0.45 * accent * Math.exp(-frac * 3), treble: 0.35 * Math.exp(-((frac * 2) % 1) * 6) };
   if (real) {
-    const calm = 0.25 + 0.75 * Math.min(1, (real.bass * 0.6 + real.mid * 0.3 + real.treble * 0.1) * 4);
+    const calm = 0.25 + 0.75 * Math.min(1, (real.bass * 0.6 + real.mid * 0.3 + real.treble * 0.1) * 4); tempo.calm = calm;
     f = { bass: f.bass * (tempo.strength || 1) * calm, mid: (0.4 * f.mid + 0.6 * real.mid) * calm, treble: (0.4 * f.treble + 0.6 * real.treble) * calm };
   }
   applyFrame(f, now, false);
@@ -1724,7 +1726,10 @@ setInterval(() => {
   if (!chr || !S.current || S.current.kind !== 'effect' || byId[S.current.id].needs !== 'audio') { dstats.bc = audio.beatCount; return; }
   const beats = audio.beatCount - (dstats.bc || 0); dstats.bc = audio.beatCount;
   const now = performance.now(), pps = dstats.w.filter(t => now - t < 10000).length / 10;
-  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.bpm.toFixed(1)} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)}`);
+  const ag = S.audioSrc === 'mic' ? agc.mic : S.audioSrc === 'player' ? agc.play : (auto.on ? agc.tempo : null), f2 = v => (v || 0).toFixed(2);
+  const cv = dstats.cv.filter(c => now - c[0] < 10000).map(c => c[1]);
+  const sent = cv.length ? `${Math.round(cv.reduce((a, b) => a + b, 0) / cv.length)}/${Math.max(...cv)}` : '-';
+  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.bpm.toFixed(1)} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent}` + (ag && ag.raw ? ` rawBands=${f2(ag.raw.bass)}/${f2(ag.raw.mid)}/${f2(ag.raw.treble)} agcPeak=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
 }, 10000);
 if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
