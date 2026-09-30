@@ -368,7 +368,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 review1';
+const APP_BUILD = '2026-10-01 review2';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -381,7 +381,7 @@ function dctx() {
 }
 // every: skip repeats of the same message within N ms (so an error loop can't flood the log)
 function dlog(type, detail, every) {
-  const now = Date.now(), key = type + (every ? detail : '');
+  const now = Date.now(), key = (every && /^(WRITE-|GPS)/.test(type)) ? type : type + (every ? detail : '');
   if (every && now - (dstats.lastKey[key] || 0) < every) return;
   dstats.lastKey[key] = now;
   const t = new Date(now), pad = n => String(n).padStart(2, '0');
@@ -409,7 +409,7 @@ async function copyLog() {
   const txt = logHeader() + '\n' + dlogBuf.join('\n');
   try { await navigator.clipboard.writeText(txt); toast('Log copied. Paste it to Claude'); }
   catch (e) {
-    const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+    const ta = document.createElement('textarea'); ta.value = txt; ta.style.userSelect = ta.style.webkitUserSelect = 'text'; document.body.appendChild(ta); ta.select(); try { ta.setSelectionRange(0, 1e7); } catch (e3) {}
     try { document.execCommand('copy'); toast('Log copied. Paste it to Claude'); } catch (e2) { toast('Copy failed. Screenshot the log instead'); }
     ta.remove();
   }
@@ -544,6 +544,7 @@ async function openGatt() {
   const svc = await server.getPrimaryService(SERVICE);
   chr = await svc.getCharacteristic(CHAR);
   inflight = false; lastColorHex = '';
+  cmdQueue.length = 0; // commands queued while disconnected would all burst out at once; restoreOutput() re-sends what matters
   CMD.login.forEach(sendCmd);
   sendCmd(S.power ? CMD.on : CMD.off);
   const other = supportsOtherFx(device.name);
@@ -555,10 +556,13 @@ async function openGatt() {
   restoreOutput();
 }
 function onDisconnected() {
+  if (!chr && !userDisconnect) return; // already handled (e.g. noticed on returning from a lock, then the queued event arrives)
   const ctx = dctx(); // captured before anything changes
+  const lockRelated = document.hidden || Date.now() - (dstats.visAt || 0) < 3000;
   chr = null;
   if (userDisconnect) { dlog('DISCONNECTED (by you)', ''); setConn('off', 'Tap to connect'); return; }
-  dstats.drops++; dlog('DROP', ctx);
+  dstats.drops++; dlog('DROP', (lockRelated ? '(around a screen lock) ' : '') + ctx);
+  if (lockRelated) { reconnect(); return; } // locking the phone isn't the strip being overloaded: don't lower the rates
   if (S.musicFps > 20) { S.musicFps = Math.max(20, S.musicFps - 10); store('musicFps', S.musicFps); syncMusicFpsUi(); dlog('music rate lowered', S.musicFps + '/s (connection drop)'); }
   // Unexpected drop usually means the controller got overloaded: ease off a little each time.
   S.drops++;
@@ -649,7 +653,7 @@ const tempo = { t0: performance.now(), taps: [], lastIdx: -1 };
 const playerEl = () => document.getElementById('player');
 function getCtx() {
   if (!audio.ctx) audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+  if (audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
   return audio.ctx;
 }
 function makeAnalyser(smoothing = 0.15) { const an = getCtx().createAnalyser(); an.fftSize = 1024; an.smoothingTimeConstant = smoothing; return an; }
@@ -703,13 +707,15 @@ function kickFrame() {
   clearTimeout(timer); nextFrameAt = performance.now(); runFrame();
 }
 async function startMic() {
-  if (audio.micAn) { getCtx(); return true; }
+  getCtx(); // create/resume the audio context synchronously, inside the tap that called us (iOS needs that)
+  if (audio.micAn) return true;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     micHint('This browser won\'t give web pages the microphone. Check Bluefy\'s mic permission in iPhone Settings.', true);
     return false;
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    audio.micStream = stream;
     audio.micAn = makeAnalyser(0.15);
     audio.micSrc = getCtx().createMediaStreamSource(stream);
     // Quiet music (like a night-time test) sits right at the analyser's -100 dB floor, where volume changes can't be
@@ -729,6 +735,7 @@ function ensurePlayerGraph() {
 }
 function startSampler() { if (!audio.sampler) audio.sampler = setInterval(sampleAudio, 30); }
 function sampleAudio() {
+  if (!(S.current && S.current.kind === 'effect' && byId[S.current.id].needs === 'audio')) return; // nothing is listening: don't burn battery
   const now = performance.now();
   if (S.audioSrc === 'tempo') { if (!(timer && tempoLocked())) sampleTempo(now); return; } // otherwise the engine does it on the beat grid
   const an = S.audioSrc === 'mic' ? audio.micAn : audio.playAn;
@@ -866,9 +873,20 @@ async function ensureAudio() {
   return true;
 }
 
+// Release the microphone when nothing needs it (clears the orange mic indicator on iOS)
+function stopMic() {
+  if (!audio.micStream) return;
+  try { audio.micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { if (auto.proc) { auto.proc.onaudioprocess = null; auto.proc.disconnect(); } if (audio.micGain) audio.micGain.disconnect(); if (audio.micSrc) audio.micSrc.disconnect(); } catch (e) {}
+  audio.micStream = null; audio.micAn = null; audio.micSrc = null; audio.micGain = null; auto.proc = null; auto.an = null;
+}
+
 // ---- source picker ----
 function selectSource(src, init) {
+  const was = S.audioSrc;
   S.audioSrc = src; store('audioSrc', src);
+  audio.ibis = []; audio.autoDivD = undefined; audio.onsetN = 0; audio.hitRes = 0; // a new source starts with a clean tempo estimate
+  if (was === 'mic' && src !== 'mic' && !auto.on) stopMic();
   ['tempo', 'player', 'mic', 'strip'].forEach(k => document.getElementById('src-' + k).classList.toggle('hidden', k !== src));
   document.getElementById('musicFxCard').classList.toggle('hidden', src === 'strip');
   document.querySelectorAll('#srcBtns [data-src]').forEach(b => b.classList.toggle('primary', b.dataset.src === src));
@@ -942,15 +960,18 @@ const auto = { on: false, an: null, buf: null, prev: null, env: [], sampleT: nul
 async function toggleAuto(force) {
   const on = force !== undefined ? force : !auto.on;
   if (on) {
+    getCtx();
     if (!(await startMic())) { autoStatus('Auto-listen needs the microphone. Allow it for Bluefy in iPhone Settings.', true); return; }
     if (!auto.proc) buildAutoGraph();
     auto.env = []; auto.prevE = null; auto.bandAvg = [1e-3, 1e-3, 1e-3]; auto.clock = null; auto.locked = false; auto.cand = null; auto.candN = 0;
     auto.running = true;
+    clearInterval(auto.estT);
     auto.estT = setInterval(autoEstimate, 1000);
     if (S.audioSrc !== 'tempo') selectSource('tempo');
     autoStatus('Listening… give it about 6 seconds of music.');
   } else {
     auto.running = false; clearInterval(auto.estT); auto.estT = null;
+    if (S.audioSrc !== 'mic') stopMic();
     autoStatus('Auto-listen is off. Tap the beat, or turn Auto-listen on.');
   }
   auto.on = on; store('autoTempo', on);
@@ -1111,7 +1132,13 @@ function clearSongs() { playerEl().pause(); songs.forEach(x => URL.revokeObjectU
 
 /* ---------------- sensors: motion ---------------- */
 const motion = { on: false, jolt: 0, energy: 0, tiltHue: 0, lastJolt: 0 };
-async function startMotion(quiet) {
+let motionPending = null;
+function startMotion(quiet) { // one permission request at a time (a second tap would add a second listener)
+  if (motion.on) return Promise.resolve(true);
+  if (!motionPending) motionPending = startMotion2(quiet).finally(() => { motionPending = null; });
+  return motionPending;
+}
+async function startMotion2(quiet) {
   if (motion.on) return true;
   try {
     if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -1571,14 +1598,20 @@ function tick(now = performance.now()) {
   if (!cmdQueue.length && !pendingColor && !slot.bright && !slot.speed) urgent = false; // nothing to send this frame: don't let it leak to a later one
 }
 
+let effectTok = 0;
 async function runEffect(id, params) {
   const e = byId[id];
+  if (!e) return; // a saved favourite for an effect that no longer exists
+  const tok = ++effectTok;
   dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
   if (e.needs === 'motion' && !(await startMotion())) return;
+  if (tok !== effectTok) return; // something else was chosen while a permission prompt was open
   scratch = {};
   leaveBuiltin();
-  S.current = { kind: 'effect', id, params: params || paramsFor(e) };
+  // Saved parameters are merged over today's defaults (a parameter added later would otherwise be undefined -> NaN) and cloned
+  // (so moving a slider can't silently change the saved favourite).
+  S.current = { kind: 'effect', id, params: params ? { ...paramsFor(e), ...JSON.parse(JSON.stringify(params)) } : paramsFor(e) };
   ensureOn();
   if (e.start) e.start(S.current.params, scratch);
   startEngine();
@@ -1589,6 +1622,7 @@ async function runEffect(id, params) {
 function leaveBuiltin() { if (S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); } }
 function applyHwBright() { const b = Math.round(S.bright * 100); if (b !== S.hwBright) { S.hwBright = b; sendCmd(CMD.bright(b)); } }
 function setSolid(hex) {
+  effectTok++;
   dlog('solid', hex, 1500);
   stopEngine();
   leaveBuiltin();
@@ -1598,11 +1632,12 @@ function setSolid(hex) {
   renderActive(); renderParams();
 }
 function setBuiltin(m) {
+  effectTok++;
   dlog('built-in', fxName(m), 500);
   stopEngine();
   S.current = { kind: 'builtin', id: m };
   ensureOn();
-  sendCmd(CMD.mode(m));
+  sendCmd(CMD.mode(m)); sendCmd(CMD.speed(S.hwSpeed)); // the Built-in tab's speed slider should match the strip
   applyHwBright();
   document.getElementById('preview').style.background = 'linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f)';
   renderActive(); renderParams();
@@ -1610,7 +1645,7 @@ function setBuiltin(m) {
 function restoreOutput() {
   if (!S.current || !S.power) return;
   if (S.current.kind === 'solid') sendColor(hexToRgb(S.current.id));
-  else if (S.current.kind === 'builtin') { sendCmd(CMD.mode(S.current.id)); S.hwBright = 100; applyHwBright(); }
+  else if (S.current.kind === 'builtin') { sendCmd(CMD.mode(S.current.id)); sendCmd(CMD.speed(S.hwSpeed)); S.hwBright = 100; applyHwBright(); }
   else if (S.current.kind === 'stripmic') sendStripMic();
   else { const e = byId[S.current.id]; if (e.start) e.start(S.current.params, scratch); startEngine(); }
 }
@@ -1643,18 +1678,26 @@ function handOffToStrip() {
     S.hwBright = Math.round(S.bright * 100);
     const packets = [...(e.lockPackets ? e.lockPackets(S.current.params, scratch) : []), CMD.bright(S.hwBright)];
     packets.reduce((pr, h) => pr.then(() => rawWrite(hexToBytes(h))), Promise.resolve()).catch(() => {});
-  } else rawWrite(hexToBytes(CMD.mode(S.lockMode))).catch(() => {});
+  } else {
+    // Phone-driven effects dim by scaling RGB and keep the strip itself at 100%, so pass the chosen brightness to the strip first.
+    S.hwBright = Math.max(3, Math.round(S.bright * 100));
+    const lockFx = (!S.otherFx && S.lockMode >= 213) ? 156 : S.lockMode; // an 'Other' effect doesn't exist on this strip
+    [CMD.bright(S.hwBright), CMD.mode(lockFx)].reduce((pr, h) => pr.then(() => rawWrite(hexToBytes(h))), Promise.resolve()).catch(() => {});
+  }
 }
 const hexToBytes = hex => new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
 window.addEventListener('pagehide', handOffToStrip);
 document.addEventListener('visibilitychange', () => {
+  dstats.visAt = Date.now();
   dlog(document.hidden ? 'SCREEN LOCKED/HIDDEN' : 'SCREEN BACK', dctx());
   if (document.hidden) {
     handOffToStrip();
   } else {
     handedOff = false;
+    if (audio.ctx && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
     if (chr && device && device.gatt && !device.gatt.connected) { dlog('LINK LOST while hidden', ''); onDisconnected(); }
     keepAwake();
+    if (S.current && S.current.kind === 'effect' && !byId[S.current.id].start && S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); } // phone effects expect a 100% strip
     if (S.current && S.current.kind === 'effect' && S.power) { lastColorHex = ''; startEngine(); }
     if (device && !chr && !userDisconnect) reconnect();
   }
@@ -1675,6 +1718,7 @@ function enterRide() {
 }
 function exitRide() {
   try { if (noSleep) noSleep.disable(); } catch (e) {}
+  try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
   document.getElementById('ride').classList.add('hidden');
 }
 (function wireRide() {
