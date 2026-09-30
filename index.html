@@ -364,9 +364,17 @@ function rawWrite(bytes) {
   return chr.properties.writeWithoutResponse ? chr.writeValueWithoutResponse(bytes) : chr.writeValue(bytes);
 }
 function sendCmd(hex) { cmdQueue.push(hex); pump(); }
+// Pure black (0,0,0) made the strip disconnect/reconnect in a loop: every Flash effect hits it,
+// no Flow effect does. Either the controller treats it like "off" and resets, or the power bank
+// sees almost no load and cuts out. So "black" is sent as a faint glow of the last lit colour.
+const DARK_FLOOR = 4; // 0-255, barely visible under the board
+let lastLit = [255, 255, 255];
 function colorHex(rgb) {
   const b = S.bright * S.bright; // perceptual curve: slider halfway looks about half as bright
-  const out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
+  let out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
+  const m = Math.max(...out);
+  if (m >= DARK_FLOOR) lastLit = out;
+  else { const lm = Math.max(...lastLit) || 1; out = lastLit.map(v => Math.max(0, (v / lm) * DARK_FLOOR)); }
   document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
   return CMD.color(...out);
 }

@@ -60,6 +60,10 @@ My music is mostly **YouTube Music**. The strip's own mic is ruled out (it's und
 
 **Native iPhone app?** Asked 2026-09-30. It would fix effects stopping when the phone locks and remove the need for Bluefy, but **not** YouTube Music audio. The only route is a ReplayKit screen-broadcast extension (Control Center, red indicator, some apps mute capture, unproven with YouTube Music). It needs a Mac + Xcode (I'm on Windows) or cloud builds, plus a $99/yr Apple developer account (free signing expires every 7 days). Decision: stay web for now.
 
+### Flash tab disconnect loop (2026-09-30)
+
+All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip disconnect and reconnect repeatedly. Flow effects were fine. Power: 5000 mAh USB-C power bank → C-to-C L adapter → C-to-A adapter → strip's USB-A plug. Suspects: (1) the controller mishandles colour 0,0,0 and resets; (2) the power bank cuts out at near-zero load or on big current swings. Fix so far: `colorHex` never sends pure black; it sends a faint glow (`DARK_FLOOR` = 4) of the last lit colour. **If drops continue**, especially on Alternate (which never goes black), it's power: test at 40% brightness, then try another power bank or a direct cable.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):
