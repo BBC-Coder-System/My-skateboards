@@ -368,7 +368,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 review2';
+const APP_BUILD = '2026-10-01 review3';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -457,6 +457,7 @@ function pump() {
   const wait = lastWriteAt + 1000 / effFps() - 4 - performance.now(); // 8 ms slack so frame-timer jitter doesn't push a frame back a whole slot
   if (wait > 0 && !urgent) { pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, wait); return; }
   const beatNow = urgent; urgent = false;
+  if (!S.power) { pendingColor = null; slot.bright = null; slot.speed = null; } // no colour/brightness/speed frames while the strip is switched off
   const nowP = performance.now(), slowOk = nowP - lastSlowAt >= S.slowGap;
   let hex = null;
   if (cmdQueue.length) { hex = cmdQueue.shift(); lastColorHex = ''; }
@@ -1653,7 +1654,7 @@ function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPow
 function togglePower() {
   S.power = !S.power; dlog('power', S.power ? 'on' : 'off');
   sendCmd(S.power ? CMD.on : CMD.off);
-  if (S.power) restoreOutput(); else { stopEngine(); document.getElementById('preview').style.background = '#000'; }
+  if (S.power) restoreOutput(); else { stopEngine(); pendingColor = null; slot.bright = null; slot.speed = null; document.getElementById('preview').style.background = '#000'; } // a frame computed just before must not follow the OFF command
   renderPower();
 }
 function renderPower() { document.getElementById('btnPower').className = S.power ? '' : 'off'; }
