@@ -283,6 +283,11 @@
       <div class="grid4" id="wireBtns" style="grid-template-columns:repeat(3,1fr)"></div>
       <div class="hint" id="wireHint">Pick an order, then check: the strip should show <b style="color:#f55">red</b>.</div>
 
+      <div class="label" style="margin-top:12px">Music update rate</div>
+      <div class="slider"><label>Frames/s</label><input type="range" id="musicFps" min="15" max="60" step="5" value="30"><span class="val" id="musicFpsVal">30/s</span></div>
+      <div class="hint">How many colour updates per second music effects send. The official app sends its music colours far faster than normal ones, so higher usually lands beats better and looks smoother. If the strip lags or drops, lower it (the app lowers it by itself after repeated write timeouts).</div>
+      <div class="slider"><label>All effects</label><select id="fastColourAll" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="0">Fast colours for music only (default)</option><option value="1">Fast colours for every effect (experimental)</option></select></div>
+
       <div class="label" style="margin-top:12px">Bluetooth write mode</div>
       <select id="writeMode" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
         <option value="fast">Fast (default: no waiting for the strip's reply)</option>
@@ -357,7 +362,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-09-30 robust';
+const APP_BUILD = '2026-09-30 musicfps';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -365,7 +370,7 @@ function dctx() {
     const now = performance.now();
     const cur = !S.current ? 'none' : S.current.kind === 'effect' ? byId[S.current.id].name : S.current.kind === 'builtin' ? fxName(S.current.id) : S.current.kind === 'stripmic' ? 'strip mic' : 'solid ' + S.current.id;
     const pps = dstats.w.filter(t => now - t < 5000).length / 5;
-    return `effect="${cur}" bright=${Math.round(S.bright * 100)}% hw=${S.hwBright} fps=${S.fps} pps=${pps.toFixed(1)} up=${dstats.connAt ? Math.round((now - dstats.connAt) / 1000) : '-'}s lastWrite=${lastWriteAt ? Math.round(now - lastWriteAt) : '-'}ms power=${S.power ? 'on' : 'off'} src=${S.audioSrc} brake=${brake.on ? (brake.active ? 'braking' : 'on') : 'off'} screen=${document.hidden ? 'hidden' : 'visible'} link=${chr && device && device.gatt && device.gatt.connected ? 'up' : 'down'}`;
+    return `effect="${cur}" bright=${Math.round(S.bright * 100)}% hw=${S.hwBright} fps=${effFps()} pps=${pps.toFixed(1)} up=${dstats.connAt ? Math.round((now - dstats.connAt) / 1000) : '-'}s lastWrite=${lastWriteAt ? Math.round(now - lastWriteAt) : '-'}ms power=${S.power ? 'on' : 'off'} src=${S.audioSrc} brake=${brake.on ? (brake.active ? 'braking' : 'on') : 'off'} screen=${document.hidden ? 'hidden' : 'visible'} link=${chr && device && device.gatt && device.gatt.connected ? 'up' : 'down'}`;
   } catch (e) { return '(context unavailable)'; }
 }
 // every: skip repeats of the same message within N ms (so an error loop can't flood the log)
@@ -412,7 +417,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -437,7 +442,7 @@ function pump() {
   // the remaining 0-66 ms wobble. It still never overlaps a write in flight.
   if (urgent) { clearTimeout(pumpTimer); pumpTimer = null; }
   if (pumpTimer) return;
-  const wait = lastWriteAt + 1000 / S.fps - 8 - performance.now(); // 8 ms slack so frame-timer jitter doesn't push a frame back a whole slot
+  const wait = lastWriteAt + 1000 / effFps() - 4 - performance.now(); // 8 ms slack so frame-timer jitter doesn't push a frame back a whole slot
   if (wait > 0 && !urgent) { pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, wait); return; }
   urgent = false;
   let hex;
@@ -454,7 +459,11 @@ function pump() {
   Promise.race([rawWrite(bytes), timeout])
     .catch(e => {
       console.warn('write', e);
-      if (e && e.message === 'write timeout') { dstats.timeouts++; dlog('WRITE-TIMEOUT', '(no reply in 600 ms) ' + dctx(), 2000); }
+      if (e && e.message === 'write timeout') {
+        dstats.timeouts++; dlog('WRITE-TIMEOUT', '(no reply in 600 ms) ' + dctx(), 2000);
+        const now = Date.now(); dstats.recentTO = (dstats.recentTO || []).filter(t => now - t < 10000).concat([now]);
+        if (dstats.recentTO.length >= 3 && S.musicFps > 20) { S.musicFps = Math.max(20, S.musicFps - 5); store('musicFps', S.musicFps); dstats.recentTO = []; syncMusicFpsUi(); dlog('music rate lowered', S.musicFps + '/s (write timeouts)'); }
+      }
       else dlog('WRITE-ERROR', String(e && e.message || e).slice(0, 80) + ' ' + dctx(), 2000);
     })
     .finally(() => { inflight = false; pump(); });
@@ -480,7 +489,8 @@ function colorHex(rgb) {
   if (m >= DARK_FLOOR) lastLit = out;
   else { const lm = Math.max(...lastLit) || 1; out = lastLit.map(v => Math.max(0, (v / lm) * DARK_FLOOR)); }
   document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
-  const music = S.current && S.current.kind === 'effect' && byId[S.current.id] && byId[S.current.id].needs === 'audio';
+  const cur = S.current && S.current.kind === 'effect' ? byId[S.current.id] : null;
+  const music = !!cur && (cur.needs === 'audio' || (S.fastColourAll && !cur.drive && !cur.start));
   return CMD.color(...out, music ? S.musicFlag : 0x10);
 }
 function sendColor(rgb) { pendingColor = colorHex(rgb); pump(); }
@@ -517,6 +527,7 @@ function onDisconnected() {
   chr = null;
   if (userDisconnect) { dlog('DISCONNECTED (by you)', ''); setConn('off', 'Tap to connect'); return; }
   dstats.drops++; dlog('DROP', ctx);
+  if (S.musicFps > 20) { S.musicFps = Math.max(20, S.musicFps - 10); store('musicFps', S.musicFps); syncMusicFpsUi(); dlog('music rate lowered', S.musicFps + '/s (connection drop)'); }
   // Unexpected drop usually means the controller got overloaded: ease off a little each time.
   S.drops++;
   if (S.fps > 10) {
@@ -585,6 +596,16 @@ function fireLife(t, p, st, tint = [255, 90, 0]) {
 // `frac` of a cycle. Each phase must span >= 2 update frames or the engine can sample the same
 // phase every tick and the strip looks stuck on one colour. Divided by speed because t is sped up.
 const maxRate = frac => S.fps * frac / 2 / S.speed;
+// LotusLamp X spaces normal colour commands 100 ms apart (10/s) but its music colour commands (marker 0x20) only 10 ms apart,
+// so the controller is built to take music colours many times faster than ordinary ones. Music effects therefore run at
+// their own, higher update rate; without the marker they stay near the old 10-12/s limit.
+function effFps() {
+  const cur = S.current && S.current.kind === 'effect' ? byId[S.current.id] : null;
+  if (!cur) return S.fps;
+  const fast = (cur.needs === 'audio' || (S.fastColourAll && !cur.drive && !cur.start)) && S.musicFlag === 0x20;
+  if (cur.needs === 'audio' && S.musicFlag !== 0x20) return Math.min(S.fps, 12);
+  return fast ? S.musicFps : S.fps;
+}
 
 /* ---------------- music: sources (tempo / player / mic) ---------------- */
 // Every source fills the same fields (level, bass, mid, treble 0..1, beatCount), so music effects
@@ -695,7 +716,7 @@ function applyFrame(f, now, detect) {
   const wdt = Math.min(0.2, (now - (audio.wbT || now)) / 1000); audio.wbT = now;
   const wa = 1 - Math.exp(-wdt / 4), mean = audio.mean || (audio.mean = { bass: f.bass, mid: f.mid, treble: f.treble }), wb = audio.wb || (audio.wb = {});
   for (const k of ['bass', 'mid', 'treble']) { mean[k] += (f[k] - mean[k]) * wa; wb[k] = Math.max(0, Math.min(1, (f[k] - 0.5 * mean[k]) / (1.5 * mean[k] + 0.05))); }
-  audio.level = f.bass * 0.6 + f.mid * 0.3 + f.treble * 0.1;
+  audio.level = Math.min(1, f.bass * 0.85 + f.mid * 0.3 + f.treble * 0.1); // the beat carries the pulse; mids/highs add body
   // Beat = a sudden rise in bass (onset), compared with how much it usually rises. Comparing the bass
   // *level* to its average fails with loud bass-heavy music: the average saturates and nothing triggers.
   const rise = Math.max(0, f.bass - (audio.prevBass ?? f.bass));
@@ -734,7 +755,10 @@ function sampleTempo(now) {
     const lv = real.bass * 0.6 + real.mid * 0.3 + real.treble * 0.1;
     const calm = S.levelMode === 'auto' ? 0.25 + 0.75 * Math.min(1, lv * 4) : Math.max(0.06, Math.min(1, Math.pow(lv, 0.7) * 1.6));
     tempo.calm = calm;
-    f = { bass: f.bass * (tempo.strength || 1) * calm, mid: (0.4 * f.mid + 0.6 * real.mid) * calm, treble: (0.4 * f.treble + 0.6 * real.treble) * calm };
+    // Real mids/highs are low-passed (0.12 s attack, 0.3 s release) so they add body without a bump for every hat or snare.
+    const hdt = Math.min(0.2, (now - (tempo.hT || now)) / 1000); tempo.hT = now;
+    tempo.midS = follow(tempo.midS || 0, real.mid, hdt, 0.12, 0.3); tempo.trebS = follow(tempo.trebS || 0, real.treble, hdt, 0.12, 0.3);
+    f = { bass: f.bass * (tempo.strength || 1) * calm, mid: (0.4 * f.mid + 0.6 * tempo.midS) * calm, treble: (0.4 * f.treble + 0.6 * tempo.trebS) * calm };
   }
   applyFrame(f, now, false);
 }
@@ -1440,9 +1464,9 @@ function runFrame() {
 }
 const tempoLocked = () => S.audioSrc === 'tempo' && S.current && S.current.kind === 'effect' && byId[S.current.id].needs === 'audio';
 function nextFrameTime(t) {
-  if (!tempoLocked()) return t + 1000 / S.fps;
+  if (!tempoLocked()) return t + 1000 / effFps();
   // Whole number of frames per beat, never faster than the update rate.
-  const period = 60000 / S.bpm, sub = period / Math.max(1, Math.floor(period / (1000 / S.fps)));
+  const period = 60000 / S.bpm, sub = period / Math.max(1, Math.floor(period / (1000 / effFps())));
   return tempo.t0 + (Math.floor((t - tempo.t0) / sub + 1e-6) + 1) * sub;
 }
 function tick(now = performance.now()) {
@@ -1728,6 +1752,11 @@ document.getElementById('stripStyle').value = S.stripMode;
 document.getElementById('stripStyle').addEventListener('change', e => { S.stripMode = +e.target.value; store('stripMode', S.stripMode); if (S.current && S.current.kind === 'stripmic') { sendCmd(CMD.micMode(S.stripMode)); } });
 bindSlider('stripSens', v => { S.stripSens = v; store('stripSens', v); if (S.current && S.current.kind === 'stripmic') { pendingColor = CMD.micSens(v); pump(); } }, v => v);
 document.getElementById('stripSens').value = S.stripSens; document.getElementById('stripSensVal').textContent = S.stripSens;
+function syncMusicFpsUi() { const e = document.getElementById('musicFps'); if (e) { e.value = S.musicFps; document.getElementById('musicFpsVal').textContent = S.musicFps + '/s'; } }
+bindSlider('musicFps', v => { S.musicFps = v; store('musicFps', v); if (timer) startEngine(); }, v => v + '/s');
+syncMusicFpsUi();
+document.getElementById('fastColourAll').value = S.fastColourAll ? '1' : '0';
+document.getElementById('fastColourAll').addEventListener('change', e => { S.fastColourAll = e.target.value === '1'; store('fastColourAll', S.fastColourAll); dlog('fast colours for all effects', S.fastColourAll ? 'on' : 'off'); if (timer) startEngine(); });
 bindSlider('micGain', v => { S.micGainDb = v; store('micGainDb', v); if (audio.micGain) audio.micGain.gain.value = Math.pow(10, v / 20); }, v => v + ' dB');
 document.getElementById('micGain').value = S.micGainDb; document.getElementById('micGainVal').textContent = S.micGainDb + ' dB';
 bindSlider('syncDelay', v => { S.syncDelay = v; store('syncDelay', v); }, v => v + 'ms');
