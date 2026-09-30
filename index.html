@@ -244,6 +244,15 @@
         <option value="keep">Keep the last colour</option>
       </select>
       <div class="slider" id="lockModeRow"><label>Effect</label><select id="lockMode" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"></select></div>
+      <div class="label" style="margin-top:12px">Diagnostics</div>
+      <div class="hint">A running log of connects, drops and what the app was doing at that moment. After a ride or a test, tap <b>Copy log</b> and paste it to Claude.</div>
+      <div id="dlogSummary" class="hint" style="color:var(--text)"></div>
+      <pre id="dlogView" style="background:#000;border-radius:10px;padding:8px;height:130px;overflow:auto;font-size:10px;line-height:1.35;white-space:pre-wrap;word-break:break-word;color:#9ca3af;-webkit-user-select:text;user-select:text;margin:6px 0"></pre>
+      <div class="row">
+        <button class="small primary" onclick="copyLog()">Copy log</button>
+        <button class="small" onclick="clearLog()">Clear</button>
+      </div>
+
       <div class="label" style="margin-top:12px">Strip setup</div>
       <div class="hint">Tell the controller how many LEDs your strip has. If the number is wrong, moving effects stop early, stretch, or jump. The controller stores this, so you only need to do it once.</div>
       <div class="row" style="align-items:center">
@@ -336,6 +345,51 @@ const fxName = n => FX_NAME[n] || 'Effect #' + n;
 function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
+/* ---------------- diagnostics log ---------------- */
+const APP_BUILD = '2026-09-30 diag';
+const dlogBuf = load('dlog', []);
+const dstats = { w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
+function dctx() {
+  try {
+    const now = performance.now();
+    const cur = !S.current ? 'none' : S.current.kind === 'effect' ? byId[S.current.id].name : S.current.kind === 'builtin' ? fxName(S.current.id) : S.current.kind === 'stripmic' ? 'strip mic' : 'solid ' + S.current.id;
+    const pps = dstats.w.filter(t => now - t < 5000).length / 5;
+    return `effect="${cur}" bright=${Math.round(S.bright * 100)}% hw=${S.hwBright} fps=${S.fps} pps=${pps.toFixed(1)} up=${dstats.connAt ? Math.round((now - dstats.connAt) / 1000) : '-'}s lastWrite=${lastWriteAt ? Math.round(now - lastWriteAt) : '-'}ms power=${S.power ? 'on' : 'off'} src=${S.audioSrc} brake=${brake.on ? (brake.active ? 'braking' : 'on') : 'off'} screen=${document.hidden ? 'hidden' : 'visible'}`;
+  } catch (e) { return '(context unavailable)'; }
+}
+// every: skip repeats of the same message within N ms (so an error loop can't flood the log)
+function dlog(type, detail, every) {
+  const now = Date.now(), key = type + (every ? detail : '');
+  if (every && now - (dstats.lastKey[key] || 0) < every) return;
+  dstats.lastKey[key] = now;
+  const t = new Date(now), pad = n => String(n).padStart(2, '0');
+  dlogBuf.push(`${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())} ${type}${detail ? ' ' + detail : ''}`);
+  while (dlogBuf.length > 300) dlogBuf.shift();
+  try { localStorage.setItem('dlog', JSON.stringify(dlogBuf.slice(-200))); } catch (e) {}
+  renderLog();
+}
+function renderLog() {
+  const v = document.getElementById('dlogView'); if (!v) return;
+  v.textContent = dlogBuf.slice(-40).join('\n'); v.scrollTop = v.scrollHeight;
+  const mins = Math.round((Date.now() - dstats.start) / 60000);
+  document.getElementById('dlogSummary').textContent = `This session: ${mins} min · ${dstats.drops} drop${dstats.drops === 1 ? '' : 's'} · ${dstats.timeouts} write timeout${dstats.timeouts === 1 ? '' : 's'}`;
+}
+function logHeader() {
+  return [`Board Lights diagnostics · build ${APP_BUILD}`, `time ${new Date().toString().slice(0, 33)}`,
+    `device ${(typeof device !== 'undefined' && device && device.name) || '-'} · ackedWrites=${useAck} · fps=${S.fps} · brakeFast=${S.brakeFast} · musicFlag=${S.musicFlag}`,
+    `browser ${navigator.userAgent.slice(0, 110)}`, '---'].join('\n');
+}
+async function copyLog() {
+  const txt = logHeader() + '\n' + dlogBuf.join('\n');
+  try { await navigator.clipboard.writeText(txt); toast('Log copied. Paste it to Claude'); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('Log copied. Paste it to Claude'); } catch (e2) { toast('Copy failed. Screenshot the log instead'); }
+    ta.remove();
+  }
+}
+function clearLog() { dlogBuf.length = 0; dstats.drops = 0; dstats.timeouts = 0; try { localStorage.removeItem('dlog'); } catch (e) {} dlog('log cleared'); }
+
 /* ---------------- state ---------------- */
 const S = {
   power: true,
@@ -381,11 +435,16 @@ function pump() {
   else return;
   inflight = true;
   lastWriteAt = performance.now();
+  dstats.w.push(lastWriteAt); if (dstats.w.length > 400) dstats.w.splice(0, dstats.w.length - 400);
   const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
   // Watchdog: a write that never settles would otherwise block the queue and freeze the strip.
   const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('write timeout')), 600));
   Promise.race([rawWrite(bytes), timeout])
-    .catch(e => console.warn('write', e))
+    .catch(e => {
+      console.warn('write', e);
+      if (e && e.message === 'write timeout') { dstats.timeouts++; dlog('WRITE-TIMEOUT', '(no reply in 600 ms) ' + dctx(), 2000); }
+      else dlog('WRITE-ERROR', String(e && e.message || e).slice(0, 80) + ' ' + dctx(), 2000);
+    })
     .finally(() => { inflight = false; pump(); });
 }
 // Prefer acknowledged writes when the strip supports them: the strip then sets the pace and can't be flooded.
@@ -436,12 +495,16 @@ async function openGatt() {
   const other = supportsOtherFx(device.name);
   if (other !== S.otherFx) { S.otherFx = other; store('otherFx', other); renderModes(); renderLockOptions(); }
   if (S.brakeOn && !brake.on) startBrake();
+  dstats.connAt = performance.now();
+  dlog('CONNECTED', (device.name || '').trim() + ' ' + dctx());
   setConn('on', (device.name || 'Strip').trim() + (S.drops ? ' · ' + S.drops + ' drop' + (S.drops > 1 ? 's' : '') : ''));
   restoreOutput();
 }
 function onDisconnected() {
+  const ctx = dctx(); // captured before anything changes
   chr = null;
-  if (userDisconnect) { setConn('off', 'Tap to connect'); return; }
+  if (userDisconnect) { dlog('DISCONNECTED (by you)', ''); setConn('off', 'Tap to connect'); return; }
+  dstats.drops++; dlog('DROP', ctx);
   // Unexpected drop usually means the controller got overloaded: ease off a little each time.
   S.drops++;
   if (S.fps > 10) {
@@ -457,9 +520,10 @@ async function reconnect() {
   reconnecting = true;
   for (let i = 0; i < 30 && !userDisconnect; i++) {
     setConn('busy', 'Reconnecting… (' + (i + 1) + ')');
-    try { await openGatt(); reconnecting = false; return; }
-    catch (e) { await new Promise(r => setTimeout(r, Math.min(1000 + i * 500, 5000))); }
+    try { await openGatt(); reconnecting = false; dlog('RECONNECTED', 'after ' + (i + 1) + ' attempt' + (i ? 's' : '')); return; }
+    catch (e) { if (i === 0 || i % 5 === 4) dlog('reconnect failed', 'attempt ' + (i + 1) + ': ' + String(e && e.message || e).slice(0, 60)); await new Promise(r => setTimeout(r, Math.min(1000 + i * 500, 5000))); }
   }
+  dlog('GAVE UP reconnecting', '30 attempts');
   reconnecting = false;
   setConn('off', 'Lost connection. Tap to retry');
 }
@@ -938,7 +1002,7 @@ async function startBrake() {
   if (brake.on) return true;
   if (!navigator.geolocation) { brakeStatus('This browser has no GPS access.', true); return false; }
   brake.watch = navigator.geolocation.watchPosition(onFix,
-    err => brakeStatus('GPS: ' + err.message + '. Allow location for Bluefy in iPhone Settings.', true),
+    err => { dlog('GPS error', err.message, 5000); brakeStatus('GPS: ' + err.message + '. Allow location for Bluefy in iPhone Settings.', true); },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
   brake.on = true; brake.hist = []; brake.speed = null;
   if (!brake.timer) brake.timer = setInterval(brakeTick, 50);
@@ -1029,6 +1093,7 @@ function brakeStart(reason) {
   if (brake.active || !S.power || !chr) return;
   const now = performance.now();
   brake.active = true; brake.since = brake.lastDecel = now; brake.reason = reason; brake.phase = 0; brake.lowSince = 0;
+  dlog('BRAKE on', reason + ' speed=' + (brake.speed != null ? (brake.speed * 3.6).toFixed(0) + 'km/h' : '?'));
   pendingColor = null; urgent = true;
   sendCmd(CMD.color(255, 0, 0));                           // replaces whatever effect is running, at full brightness
   if (S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); }
@@ -1036,6 +1101,7 @@ function brakeStart(reason) {
   brakeUi();
 }
 function brakeEnd() {
+  dlog('BRAKE off', 'held ' + Math.round(performance.now() - brake.since) + 'ms');
   brake.active = false; brake.phase = -1;
   if (!brake.on && brake.timer) { clearInterval(brake.timer); brake.timer = null; }
   if (S.current && S.current.kind === 'builtin') document.getElementById('preview').style.background = 'linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f)';
@@ -1278,6 +1344,7 @@ function tick(now = performance.now()) {
 
 async function runEffect(id, params) {
   const e = byId[id];
+  dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
   if (e.needs === 'motion' && !(await startMotion())) return;
   scratch = {};
@@ -1293,6 +1360,7 @@ async function runEffect(id, params) {
 function leaveBuiltin() { if (S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); } }
 function applyHwBright() { const b = Math.round(S.bright * 100); if (b !== S.hwBright) { S.hwBright = b; pendingColor = CMD.bright(b); pump(); } }
 function setSolid(hex) {
+  dlog('solid', hex, 1500);
   stopEngine();
   leaveBuiltin();
   S.current = { kind: 'solid', id: hex };
@@ -1301,6 +1369,7 @@ function setSolid(hex) {
   renderActive(); renderParams();
 }
 function setBuiltin(m) {
+  dlog('built-in', fxName(m), 500);
   stopEngine();
   S.current = { kind: 'builtin', id: m };
   ensureOn();
@@ -1318,7 +1387,7 @@ function restoreOutput() {
 }
 function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPower(); } }
 function togglePower() {
-  S.power = !S.power;
+  S.power = !S.power; dlog('power', S.power ? 'on' : 'off');
   sendCmd(S.power ? CMD.on : CMD.off);
   if (S.power) restoreOutput(); else { stopEngine(); document.getElementById('preview').style.background = '#000'; }
   renderPower();
@@ -1349,6 +1418,7 @@ function handOffToStrip() {
 const hexToBytes = hex => new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16)));
 window.addEventListener('pagehide', handOffToStrip);
 document.addEventListener('visibilitychange', () => {
+  dlog(document.hidden ? 'SCREEN LOCKED/HIDDEN' : 'SCREEN BACK', dctx());
   if (document.hidden) {
     handOffToStrip();
   } else {
@@ -1598,6 +1668,8 @@ function clearFavourites() { if (confirm('Delete all favourites?')) { S.favs = [
 let toastT;
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2500); }
 
+dlog('app started', 'build ' + APP_BUILD);
+setInterval(() => { if (chr) dlog('status', dctx()); }, 60000);
 if (load('musicV', 0) < 2) { for (const id of ['mpulse', 'mbeat', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 2); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
 selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;
