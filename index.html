@@ -503,7 +503,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 stage5c';
+const APP_BUILD = '2026-10-01 stage5d';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1336,7 +1336,7 @@ async function startBrake() {
   brake.watch = navigator.geolocation.watchPosition(onFix,
     err => { dlog('GPS error', err.message, 5000); brakeStatus('GPS: ' + err.message + '. Allow location for Bluefy in iPhone Settings.', true); },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
-  brake.on = true; brake.hist = []; brake.speed = null;
+  brake.on = true; brake.hist = []; brake.speed = null; brake.lastPos = null;
   if (!brake.timer) brake.timer = setInterval(brakeTick, 50);
   if (S.brakeFast) startMotion(true); // needs a tap for its permission; retried on the next tap
   renderBrakeBtns();
@@ -1374,10 +1374,15 @@ function brakeUi() {
 function onFix(pos) {
   const now = performance.now(), t = pos.timestamp || Date.now(), c = pos.coords, h = brake.hist, last = h[h.length - 1];
   let v = c.speed;
-  if (!(v >= 0)) { // null / NaN: work the speed out from how far we moved
+  if (typeof v !== 'number' || !(v >= 0)) { // null (note: null >= 0 is true in JS) / NaN / -1: Bluefy often gives none: work the speed out from how far we moved since the previous fix
     v = null;
-    if (last && last.lat != null && c.accuracy <= 30) { const dt = (t - last.t) / 1000; if (dt > 0.3 && dt < 5) v = haversine(last, c) / dt; }
+    const lp = brake.lastPos;
+    if (lp && c.accuracy <= 40) {
+      const dt = (t - lp.t) / 1000;
+      if (dt > 0.3 && dt < 6) { const d = haversine({ lat: lp.latitude, lon: lp.longitude }, c); v = d < Math.max(6, c.accuracy * 0.6) ? 0 : d / dt; } // inside the GPS noise: not moving
+    }
   }
+  brake.lastPos = { t, latitude: c.latitude, longitude: c.longitude };
   brake.fixAt = now;
   dstats.gps = (dstats.gps || 0) + 1;
   dlog('GPS fix', 'speed ' + (c.speed == null ? 'null' : c.speed.toFixed(2)) + ' m/s -> used ' + (v == null ? 'none' : v.toFixed(2)) + ' · accuracy ' + Math.round(c.accuracy) + ' m · fixes so far ' + dstats.gps, 5000);
@@ -1575,8 +1580,8 @@ const EFFECTS = [
   // Storm: a dark violet sky with lightning in electric blue-violet (never white). The sky is kept dim so a strike has room to stand out;
   // strikes are unpredictable: long quiet spells, sudden clusters, single cracks, rolling multi-hit bursts.
   { id: 'storm', group: 'flow', name: 'Storm', desc: 'Dark violet sky with lightning cracks',
-    params: { base: { type: 'color', v: '#3a0090' }, bolt: { type: 'color', v: '#7080ff' }, gap: { label: 'Strike every (s)', min: 2, max: 15, step: 1, v: 7 },
-      sky: { label: 'Sky glow', min: 0.05, max: 0.6, step: 0.01, v: 0.18 }, intensity: { label: 'Bolt strength', min: 0.5, max: 1, step: 0.05, v: 1 } },
+    params: { base: { type: 'color', v: '#2400b0' }, bolt: { type: 'color', v: '#7080ff' }, gap: { label: 'Strike every (s)', min: 2, max: 15, step: 1, v: 7 },
+      sky: { label: 'Sky glow', min: 0.05, max: 0.6, step: 0.01, v: 0.3 }, intensity: { label: 'Bolt strength', min: 0.5, max: 1, step: 0.05, v: 1 } },
     fn: (t, p, st) => {
       const now = performance.now(), b = hexToRgb(p.base), bo = hexToRgb(p.bolt), minTau = Math.max(0.08, 1.2 / effFps());
       if (st.next === undefined) st.next = now + 2000 + Math.random() * 2500;
@@ -1599,8 +1604,9 @@ const EFFECTS = [
       if (now > st.nextFlick) { st.flick = { at: now, a: 0.1 + Math.random() * 0.22 }; st.nextFlick = now + 700 + Math.random() * 2600; }
       let fl = 0; if (st.flick) { const x = (now - st.flick.at) / 1000; fl = st.flick.a * Math.exp(-x / minTau); }
       // cloud colour drifts between violet and deep blue; the sky swells after a big strike (thunder rolling in)
-      const cloud = mix(b, [20, 30, 170], 0.55 * nz(t / 6, 21));
-      const sky = scale(cloud, (p.sky + p.sky * 0.7 * nz(t / 4)) * (1 + 1.6 * big)); // dark, so the bolt has contrast even at full brightness
+      const cloud = mix(b, [10, 40, 200], 0.6 * nz(t / 4, 21)); // violet <-> deep blue; never drifts toward red
+      const sky = scale(cloud, (p.sky + p.sky * 0.6 * nz(t / 3.2)) * (1 + 1.6 * big)); // dark, so the bolt has contrast even at full brightness
+      sky[0] = Math.min(sky[0], sky[2] * 0.35);   // keep red well below blue: at low levels any red cast shows
       return mix(sky, bo, Math.min(1, Math.max(f, fl)));
     } },
   // Aurora: curtains of light that swell out of near-darkness. Mostly green/teal; violet creeps in as a curtain fades; green surges now and then.
@@ -1920,7 +1926,7 @@ let effectTok = 0;
 async function runEffect(id, params) {
   const e = byId[id];
   if (!e) return; // a saved favourite for an effect that no longer exists
-  const tok = ++effectTok;
+  const tok = ++effectTok; idle.stopAt = performance.now(); // picking something counts as activity: the new effect shows for the 'Start after' time before parking
   dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
   if (e.needs === 'motion' || e.needs === 'gps') { const mOk = await startMotion(e.needs === 'gps'); if (e.needs === 'motion' && !mOk) return; }
@@ -1942,7 +1948,7 @@ async function runEffect(id, params) {
 function leaveBuiltin() { if (S.hwBright !== 100) { S.hwBright = 100; sendCmd(CMD.bright(100)); } }
 function applyHwBright() { const b = Math.round(S.bright * 100); if (b !== S.hwBright) { S.hwBright = b; sendCmd(CMD.bright(b)); } }
 function setSolid(hex) {
-  effectTok++;
+  effectTok++; idle.stopAt = performance.now();
   dlog('solid', hex, 1500);
   stopEngine();
   leaveBuiltin();
@@ -1952,7 +1958,7 @@ function setSolid(hex) {
   renderActive(); renderParams();
 }
 function setBuiltin(m) {
-  effectTok++;
+  effectTok++; idle.stopAt = performance.now();
   dlog('built-in', fxName(m), 500);
   stopEngine();
   S.current = { kind: 'builtin', id: m };
@@ -2404,6 +2410,7 @@ document.getElementById('idleBright').value = Math.round(S.idleBright * 100); do
 document.getElementById('idleBright').addEventListener('input', e => { S.idleBright = e.target.value / 100; store('idleBright', S.idleBright); document.getElementById('idleBrightVal').textContent = e.target.value + '%'; });
 document.getElementById('idleSpeed').value = Math.round(S.idleSpeed * 10); document.getElementById('idleSpeedVal').textContent = S.idleSpeed.toFixed(1);
 document.getElementById('idleSpeed').addEventListener('input', e => { S.idleSpeed = e.target.value / 10; store('idleSpeed', S.idleSpeed); document.getElementById('idleSpeedVal').textContent = S.idleSpeed.toFixed(1); });
+if (load('styleV', 0) < 1) { for (const id of ['storm', 'aurora', 'synth']) delete S.params[id]; store('params', S.params); store('styleV', 1); } // these three were redesigned: old saved sliders no longer fit
 if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
 selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;

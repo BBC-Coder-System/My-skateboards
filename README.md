@@ -170,6 +170,11 @@ All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip d
 - Parked glow (Idle Governor): Settings > Everyday > Parked glow (default Off). After the board is still (GPS speed under 1 m/s, else motion energy) for 5/15/60 s, colour effects fade to dim amber, then a faint heartbeat every 10 s after 2 minutes; moving snaps back. Music effects and built-ins are not touched. Needs GPS (brake light / Velocity on) or motion to know it is still; otherwise it never dims.
 - NOT built, on purpose: Tron Runner (needs a verified blue/cyan and orange running built-in; the strip's known running modes are only red/yellow/7-colour, so it would be guesswork on hardware) and glove gestures in Ride mode (needs on-board tuning). Both are candidates once you have tested what exists.
 
+### Test round 1 findings and fixes (builds stage5b-5d)
+- Storm: dark sky + random strikes + between-strike gimmicks (cloud flickers, drifting violet/deep-blue cloud colour, sky swell after big strikes). Very dark violet read as RED on this strip, so the sky is bluer and brighter now and red is capped under blue. Aurora and Synthwave redesigned (Aurora: curtains out of near-darkness; Synthwave: hard colour hits). Old saved params for these three are reset once (styleV).
+- Parked glow: style (breathing/flashing/heartbeat/steady), colour, brightness, cycle, Start after (3 s-1 min), optional Dimmer after. Choosing an effect counts as activity, so a new effect shows for the Start-after time. Live Sees: line in Settings shows what it thinks (GPS km/h or motion).
+- REAL BUG found in a phone log: Bluefy gives GPS speed as null, and  is TRUE in JavaScript, so the position-based fallback never ran. Brake light only worked when iOS happened to supply a speed (moving fast enough), and Velocity stayed one colour. Fixed: null counts as missing, the fallback is seeded from the first fix, and movement inside the GPS noise reads as standing still. Every fix is logged ('GPS fix' lines, 5 s throttle).
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

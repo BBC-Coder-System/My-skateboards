@@ -749,6 +749,24 @@ test('Aurora/Synthwave never black; Carve flushes by turn side; idle governor di
   p.ok(r.c1[0] > r.c1[2] && Math.max(...r.c1) < 90, 'still: dim amber glow ' + JSON.stringify(r.c1.map(Math.round)));
   p.ok(r.c2[2] > 150, 'moving again: effect is back');
 });
+test('GPS without a speed value: speed is worked out from position (first fix seeds it); standing still reads 0; Storm sky stays blue', async p => {
+  const r = await p.ev(() => {
+    const real = performance.now.bind(performance); let T = 500000; performance.now = () => T;
+    brake.on = true; brake.lastPos = null; brake.hist = []; brake.speed = null;
+    const fix = (lat, lon, tsec) => onFix({ timestamp: 1e12 + tsec * 1000, coords: { speed: null, latitude: lat, longitude: lon, accuracy: 8 } });
+    fix(13.0, 100.0, 0); const afterFirst = brake.speed;
+    fix(13.0, 100.00001, 1); const still = brake.speed;               // about 1 m: noise
+    fix(13.0, 100.00011, 2); const moved = brake.speed;               // about 10.8 m in 1 s
+    // storm sky colour at a quiet moment
+    const e = byId.storm, pr = paramsFor(e), st = { next: T + 1e9 }; let c; for (let i = 0; i < 60; i++) { T += 33; c = e.fn(i / 30, pr, st); }
+    performance.now = real; brake.on = false; brake.speed = null; brake.lastPos = null; brake.hist = [];
+    return { afterFirst, still, moved, c };
+  });
+  p.eq(r.afterFirst, null, 'first fix alone gives no speed');
+  p.eq(r.still, 0, 'jitter inside the GPS noise reads as standing still');
+  p.ok(r.moved > 8 && r.moved < 13, 'moving ~10.8 m in 1 s gives ~' + (r.moved || 0).toFixed(1) + ' m/s');
+  p.ok(r.c[2] > r.c[0] * 2.5 && r.c[2] >= 20, 'storm sky is blue-violet, not red: ' + JSON.stringify(r.c.map(Math.round)));
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,
