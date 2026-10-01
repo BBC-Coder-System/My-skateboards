@@ -201,7 +201,7 @@
     <section id="tab-music" class="hidden">
     <div class="card">
       <button id="btnPocket" class="small" style="width:100%" onclick="togglePocket()">🧥 Pocket mode: Off</button>
-      <div class="hint">For a speaker blasting at the phone in your pocket: listens for the beat with the microphone, ignores road thumps, and copes with muffled sound and wind. Turn it on, pick an effect, then tap Start riding. If the music comes from this same iPhone, iOS may pause it when the mic starts; see Settings, Fix problems, Audio session, or use the Strip mic source instead.</div>
+      <div class="hint">For a speaker blasting at the phone in your pocket: listens for the beat with the microphone, ignores road thumps, and copes with muffled sound and wind. Turn it on, pick an effect, then tap Start riding. <b>If the music plays from this same iPhone, iOS pauses it when the mic starts</b> (no way around that for a web page). Then use the Strip mic source, or play the music from another device.</div>
       <div class="label" style="margin-top:12px">Music source</div>
       <div class="row" id="srcBtns" style="margin-top:0">
         <button class="small" data-src="tempo">👆 Tempo</button>
@@ -416,9 +416,6 @@
       <div class="hint">(Also called "dimming gap".) Minimum time between brightness and speed commands (effects that dim or pulse a built-in effect). The strip digests these slowly; if they pile up, pulses land late. Raise it if pulses still drift off-beat, lower it for smoother fades. A beat's own pulse ignores the gap.</div>
 
       
-      <div class="label" style="margin-top:12px">Audio session (music pauses when the mic starts?)</div>
-      <div class="hint">iOS pauses music apps while this page listens. These try other audio modes to see if the music can keep playing. Change it, then turn Auto-listen or Pocket mode off and on. Tell Claude which one worked.</div>
-      <select id="audioSess" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="default">Let iOS decide (default)</option><option value="ambient">Ambient (mixes with other music)</option><option value="play-and-record">Play and record</option><option value="transient">Transient</option><option value="playback">Playback</option></select>
       <div class="label" style="margin-top:12px">Bluetooth write mode</div>
       <select id="writeMode" style="width:100%;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px">
         <option value="fast">Fast (default: no waiting for the strip's reply)</option>
@@ -509,7 +506,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-02 pocket2';
+const APP_BUILD = '2026-10-02 pocket3';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -568,7 +565,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  audioSess: load('audioSess', 'default'), pocket: load('pocket', false), autoWanted: load('autoTempo', false), idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  pocket: load('pocket', false), autoWanted: load('autoTempo', false), idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -915,18 +912,17 @@ function kickFrame() {
 }
 function audioSessionInfo() { try { const a = navigator.audioSession; return a ? 'type=' + a.type + ' state=' + a.state : 'no audioSession API'; } catch (e) { return 'audioSession error'; } }
 function applyAudioSession() {
-  // The microphone makes iOS switch the page to a 'play and record' session, which pauses music apps (YouTube Music) and can drop a Bluetooth speaker.
-  // This lets you try other session types to see if the music survives. 'default' leaves it to iOS.
+  // The microphone makes iOS use a 'play and record' session, which pauses music apps (YouTube Music). Tested: no other session type works with the mic
+  // ('ambient' fails with 'AudioSession category is not compatible with audio capture'), so this only logs the state.
   try {
     const a = navigator.audioSession; if (!a) return;
     if (!a.__listening) { a.__listening = true; a.addEventListener && a.addEventListener('statechange', () => dlog('AUDIO SESSION', 'state -> ' + audioSessionInfo())); }
-    if (S.audioSess !== 'default') a.type = S.audioSess;
-  } catch (e) { dlog('AUDIO SESSION', 'could not set ' + S.audioSess + ': ' + e.message); }
+  } catch (e) { dlog('AUDIO SESSION', 'error: ' + e.message); }
 }
 async function startMic() {
   getCtx(); // create/resume the audio context synchronously, inside the tap that called us (iOS needs that)
   if (audio.micAn) return true;
-  applyAudioSession(); dlog('AUDIO SESSION', 'before mic: ' + audioSessionInfo() + ' (setting ' + S.audioSess + ')');
+  applyAudioSession(); dlog('AUDIO SESSION', 'before mic: ' + audioSessionInfo());
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     micHint('This browser won\'t give web pages the microphone. Check Bluefy\'s mic permission in iPhone Settings.', true);
@@ -2617,8 +2613,6 @@ document.getElementById('brightRide').value = Math.round(S.bright * 100);
 document.getElementById('brightRide').addEventListener('input', e => { const t = document.getElementById('bright'); t.value = e.target.value; t.dispatchEvent(new Event('input')); });
 document.querySelectorAll('input[type=range]').forEach(i => { if (!i.getAttribute('aria-label')) { const l = i.closest('.slider') && i.closest('.slider').querySelector('label'); i.setAttribute('aria-label', (l && l.textContent) || 'slider'); } });
 renderNight(); renderBrakeBtns(); renderScenes(); renderPocket();
-document.getElementById('audioSess').value = S.audioSess;
-document.getElementById('audioSess').addEventListener('change', e => { S.audioSess = e.target.value; store('audioSess', S.audioSess); dlog('audio session setting', S.audioSess); });
 document.getElementById('idleAfter').value = String(S.idleAfter);
 document.getElementById('idleAfter').addEventListener('change', e => { S.idleAfter = +e.target.value; store('idleAfter', S.idleAfter); idle.k = 0; idle.stopAt = 0; });
 for (const key of ['idleStyle', 'idleDeep']) {

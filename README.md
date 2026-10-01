@@ -192,10 +192,10 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 - Not built yet (from the reports): the tap-along Calibrate flow and one unified 'Lights timing' slider (Sync delay, Earlier/Later and Beat offset still have opposite signs), strip-mic hand-off when the phone locks, Genre palette and auto palette per song, Song arc, Call and response, Bar painter.
 - All simulation-based; not tested in a real pocket. iOS mic processing is already switched off in startMic (echoCancellation, noiseSuppression, autoGainControl false).
 
-### Music pauses when the mic starts (build pocket2)
-- User finding: music plays from the SAME iPhone (YouTube Music) to Bluetooth speakers; turning on Auto-listen or Pocket mode (microphone) pauses the music and pressing play only works briefly. Cause: iOS puts a page that records into a play-and-record audio session, which interrupts other apps' audio. A web page cannot capture another app's audio, so the mic is the only way to hear it.
-- Added an experiment: Settings > Fix problems > Audio session (let iOS decide / ambient / play and record / transient / playback) using navigator.audioSession (Safari 16.4+), plus AUDIO SESSION lines in the log (type and state before and after the mic starts, and state changes). Unknown whether iOS lets the music survive; the log will show.
-- Conflict-free alternatives: the Strip mic source (the controller's own microphone, no phone audio at all, also survives locking), or play the music from a second device.
+### Music pauses when the mic starts (builds pocket2-3)
+- User finding: music plays from the SAME iPhone (YouTube Music) to Bluetooth speakers; turning on Auto-listen or Pocket mode (microphone) pauses the music. Cause: iOS puts a page that records into a play-and-record audio session, which interrupts other apps' audio. A web page cannot capture another app's audio, so the mic is the only way to hear it.
+- Tested on the phone with navigator.audioSession: the type is already play-and-record before the mic starts; forcing ambient makes the mic fail ("AudioSession category is not compatible with audio capture"). So there is NO web workaround; the experiment setting was removed (the AUDIO SESSION log lines stay).
+- Conflict-free ways: the Strip mic source (the controller's own microphone, no phone audio used, also survives locking; put a speaker near the controller), play the music from a second device (then the phone mic just listens), or the Player source (songs inside the page).
 
 ## Next steps
 
