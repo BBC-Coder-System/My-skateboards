@@ -346,8 +346,13 @@
       <div class="label" style="margin-top:12px">Display</div>
       <button class="small" id="btnNight" style="width:100%" onclick="toggleNight()">🌙 Night dimmer: Off</button>
       <div class="label" style="margin-top:12px">Parked glow</div>
-      <div class="hint">When the board stops (GPS speed or motion), colour effects fade to a dim amber glow, then a faint heartbeat after 2 minutes. Moving again brings the effect straight back. Music effects are not changed.</div>
-      <select id="idleAfter" style="width:100%"><option value="0">Off</option><option value="5">After 5 s</option><option value="15">After 15 s</option><option value="60">After 1 min</option></select>
+      <div class="hint">When the board stops (GPS speed or motion), colour effects change to this glow. Moving again brings the effect straight back. Music effects are not changed.</div>
+      <div class="slider"><label>Start after</label><select id="idleAfter" style="flex:1"><option value="0">Off</option><option value="3">3 s</option><option value="5">5 s</option><option value="10">10 s</option><option value="15">15 s</option><option value="30">30 s</option><option value="60">1 min</option></select></div>
+      <div class="slider"><label>Style</label><select id="idleStyle" style="flex:1"><option value="breathe">Breathing</option><option value="flash">Flashing</option><option value="heartbeat">Heartbeat</option><option value="steady">Steady</option></select></div>
+      <div class="slider"><label>Colour</label><input type="color" id="idleColor" style="flex:1;height:44px"></div>
+      <div class="slider"><label>Brightness</label><input type="range" id="idleBright" min="5" max="60" value="25"><span class="val" id="idleBrightVal">25%</span></div>
+      <div class="slider"><label>Cycle (s)</label><input type="range" id="idleSpeed" min="5" max="80" value="30"><span class="val" id="idleSpeedVal">3.0</span></div>
+      <div class="slider"><label>Dimmer after</label><select id="idleDeep" style="flex:1"><option value="0">Never</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option><option value="300">5 min</option></select></div>
       <div class="row">
         <button class="small" onclick="disconnect()">Disconnect</button>
         <button class="small" onclick="clearFavourites()">Clear favourites</button>
@@ -497,7 +502,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 stage5';
+const APP_BUILD = '2026-10-01 stage5b';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -556,7 +561,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  idleAfter: load('idleAfter', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -1564,39 +1569,54 @@ const EFFECTS = [
       }
       return scale(mix(c, [255, 60, 20], ember), k * (0.93 + 0.07 * nz(t * 5)));
     } },
-  // Storm: a violet sky glow that swells slowly, with lightning in electric blue-violet (never white).
-  { id: 'storm', group: 'flow', name: 'Storm', desc: 'Violet sky with lightning cracks',
-    params: { base: { type: 'color', v: '#3a0090' }, bolt: { type: 'color', v: '#6070ff' }, gap: { label: 'Strike every (s)', min: 3, max: 15, step: 1, v: 7 },
-      intensity: { label: 'Brightness of bolts', min: 0.5, max: 1, step: 0.05, v: 0.9 } },
+  // Storm: a dark violet sky with lightning in electric blue-violet (never white). The sky is kept dim so a strike has room to stand out;
+  // strikes are unpredictable: long quiet spells, sudden clusters, single cracks, rolling multi-hit bursts.
+  { id: 'storm', group: 'flow', name: 'Storm', desc: 'Dark violet sky with lightning cracks',
+    params: { base: { type: 'color', v: '#3a0090' }, bolt: { type: 'color', v: '#7080ff' }, gap: { label: 'Strike every (s)', min: 2, max: 15, step: 1, v: 7 },
+      sky: { label: 'Sky glow', min: 0.05, max: 0.6, step: 0.01, v: 0.18 }, intensity: { label: 'Bolt strength', min: 0.5, max: 1, step: 0.05, v: 1 } },
     fn: (t, p, st) => {
       const now = performance.now(), b = hexToRgb(p.base), bo = hexToRgb(p.bolt), minTau = Math.max(0.08, 1.2 / effFps());
-      if (st.next === undefined) st.next = now + 2500;
+      if (st.next === undefined) st.next = now + 2000 + Math.random() * 2500;
       if (now > st.next) {
-        const n = 2 + Math.floor(Math.random() * 3); st.hits = []; let at = now;
-        for (let i = 0; i < n; i++) { const last = i === n - 1; st.hits.push({ at, a: (last ? 1 : 0.4 + Math.random() * 0.4) * p.intensity, tau: last ? Math.max(0.22, minTau) : minTau }); at += 90 + Math.random() * 130; }
-        st.next = now + (p.gap * 0.5 + Math.random() * p.gap) * 1000;
+        const roll = Math.random(), kind = roll < 0.25 ? 'single' : roll < 0.75 ? 'normal' : roll < 0.9 ? 'rolling' : 'quick';
+        const n = kind === 'single' ? 1 : kind === 'normal' ? 2 + Math.floor(Math.random() * 3) : kind === 'rolling' ? 4 + Math.floor(Math.random() * 4) : 2;
+        st.hits = []; let at = now;
+        for (let i = 0; i < n; i++) {
+          const last = i === n - 1, big = kind === 'single' || (last && kind !== 'rolling') || (kind === 'rolling' && Math.random() < 0.35);
+          st.hits.push({ at, a: (big ? 0.9 + Math.random() * 0.1 : 0.35 + Math.random() * 0.4) * p.intensity, tau: big ? Math.max(0.15 + Math.random() * 0.2, minTau) : minTau });
+          at += (kind === 'rolling' ? 140 + Math.random() * 380 : 70 + Math.random() * 190);
+        }
+        // next strike: mostly near the chosen gap, but sometimes soon after (a cluster) and sometimes after a long calm
+        const r2 = Math.random(), mult = kind === 'quick' ? 0.15 + Math.random() * 0.2 : r2 < 0.2 ? 0.2 + Math.random() * 0.3 : r2 < 0.35 ? 1.6 + Math.random() * 1.2 : 0.6 + Math.random() * 0.9;
+        st.next = now + p.gap * mult * 1000;
       }
       let f = 0; for (const h of st.hits || []) { const x = (now - h.at) / 1000; if (x >= 0) f = Math.max(f, h.a * Math.exp(-x / h.tau)); }
-      return mix(scale(b, 0.35 + 0.45 * nz(t / 4)), bo, Math.min(1, f));
+      const sky = scale(b, p.sky + p.sky * 0.7 * nz(t / 4)); // dark and slowly moving, so the bolt has contrast even at full brightness
+      return mix(sky, bo, Math.min(1, f));
     } },
-  // Aurora: slow green -> teal -> violet curtains with dark valleys and an occasional bright surge.
-  { id: 'aurora', group: 'flow', name: 'Aurora', desc: 'Green-to-violet curtains that swell and fade',
-    params: { speed: { label: 'Drift', min: 0.3, max: 3, step: 0.1, v: 1 }, hueLo: { label: 'Hue from', min: 100, max: 200, step: 5, v: 130 },
-      hueHi: { label: 'Hue to', min: 220, max: 320, step: 5, v: 290 }, surge: { label: 'Surges', min: 0, max: 1, step: 0.05, v: 0.5 } },
+  // Aurora: curtains of light that swell out of near-darkness. Mostly green/teal; violet creeps in as a curtain fades; green surges now and then.
+  { id: 'aurora', group: 'flow', name: 'Aurora', desc: 'Curtains swell from darkness: green, teal, violet',
+    params: { speed: { label: 'Drift', min: 0.3, max: 3, step: 0.1, v: 1 }, depth: { label: 'Darkness between', min: 0, max: 1, step: 0.05, v: 0.8 },
+      surge: { label: 'Green surges', min: 0, max: 1, step: 0.05, v: 0.6 } },
     fn: (t, p) => {
-      t *= p.speed; const h = p.hueLo + (p.hueHi - p.hueLo) * smooth(nz(t / 9));
-      let v = 0.3 + 0.7 * Math.pow(nz(t / 3.5, 7), 1.4);
-      const sg = Math.max(0, Math.sin(t / 11)); v = Math.min(1, v + p.surge * 0.4 * sg * sg * sg);
-      return hsv(h, 1, v);
+      t *= p.speed;
+      const swell = Math.pow(nz(t / 3.2, 7), 2.2), shimmer = 0.88 + 0.12 * nz(t * 2.6, 3);
+      const sg = Math.pow(Math.max(0, Math.sin(t / 9.5)), 4), surge = p.surge * sg;
+      const floor = 0.55 * (1 - p.depth) + 0.04;
+      const v = Math.min(1, (floor + (1 - floor) * swell) * shimmer + surge * 0.5);
+      const h = 150 + 120 * Math.pow(1 - Math.min(1, swell * 1.6 + surge), 1.5) * (0.6 + 0.4 * nz(t / 7, 11)) - 20 * nz(t / 5, 5); // 150 green-teal when bright, up to ~270 violet when dark
+      return hsv(h, 0.95, v);
     } },
-  // Synthwave: pink -> orange -> violet -> cyan, each held, with a soft dip like a scan line crossing the horizon.
-  { id: 'synth', group: 'flow', name: 'Synthwave', desc: 'Pink, orange, violet, cyan with a scan-line dip',
-    params: { hold: { label: 'Hold (s)', min: 3, max: 10, step: 0.5, v: 5 }, dip: { label: 'Dip depth', min: 0, max: 0.8, step: 0.05, v: 0.55 }, dipEvery: { label: 'Dip every (s)', min: 1.5, max: 4, step: 0.1, v: 2.4 } },
+  // Synthwave: hard colour hits (pink, orange, violet, cyan) that flash and settle, like a drum machine, plus a scan-line dip. Not a glide.
+  { id: 'synth', group: 'flow', name: 'Synthwave', desc: 'Retro colour hits: pink, orange, violet, cyan',
+    params: { hold: { label: 'Hit every (s)', min: 0.6, max: 8, step: 0.1, v: 2 }, punch: { label: 'Hit punch', min: 0, max: 0.7, step: 0.05, v: 0.45 },
+      dip: { label: 'Scan dip', min: 0, max: 0.7, step: 0.05, v: 0.4 }, dipEvery: { label: 'Dip every (s)', min: 1.5, max: 8, step: 0.1, v: 5 } },
     fn: (t, p) => {
-      const C = ['#ff1f8f', '#ff6a00', '#7a1cff', '#00e5ff'].map(hexToRgb), x = t / p.hold, i = Math.floor(x) % 4;
-      const c = mix(C[i], C[(i + 1) % 4], smooth(Math.min(1, (x % 1) / 0.3)));
-      const d = (t % p.dipEvery) / p.dipEvery, k = 1 - p.dip * Math.exp(-Math.pow((d - 0.5) / 0.06, 2));
-      return scale(c, k);
+      const C = ['#ff1f8f', '#ff6a00', '#7a1cff', '#00e5ff'].map(hexToRgb), x = t / p.hold, i = Math.floor(x) % 4, fs = (x % 1) * p.hold; // fs = seconds since the last hit
+      const k = (1 - p.punch) + p.punch * Math.exp(-fs / 0.35);       // each hit starts bright and settles over ~350 ms
+      const d = (t % p.dipEvery) / p.dipEvery, dp = 1 - p.dip * Math.exp(-Math.pow((d - 0.5) / 0.05, 2));
+      const c = fs < 0.09 ? mix(C[(i + 3) % 4], C[i], fs / 0.09) : C[i]; // a very quick snap between colours, not a glide
+      return scale(c, Math.max(0.12, k * dp));
     } },
   { id: 'ocean', group: 'flow', name: 'Ocean', desc: 'Rolling blue-green waves',
     params: {},
@@ -1837,14 +1857,23 @@ function moving() {
   if (motion.on) return motion.energy > 0.35;
   return true; // no way to tell: never dim
 }
+function parkedColour(now, still) {
+  const c = hexToRgb(S.idleColor), per = S.idleSpeed * 1000, ph = (now % per) / per;
+  let k;
+  if (S.idleStyle === 'steady') k = 1;
+  else if (S.idleStyle === 'flash') k = ph < 0.18 ? 1 : 0.12;                                   // short flash, then a dark glow
+  else if (S.idleStyle === 'heartbeat') k = Math.max(Math.exp(-Math.pow((ph - 0.08) / 0.05, 2)), 0.7 * Math.exp(-Math.pow((ph - 0.28) / 0.05, 2)), 0.1);
+  else k = 0.15 + 0.85 * (0.5 - 0.5 * Math.cos(2 * Math.PI * ph));                              // breathing
+  if (S.idleDeep > 0 && still > S.idleDeep) k *= 0.4;                                            // optional second stage: dimmer
+  return scale(c, S.idleBright * k);
+}
 function idleGov(rgb, now) {
   const dt = Math.min(0.2, (now - (idle.last || now)) / 1000); idle.last = now;
   if (moving()) idle.stopAt = now; else if (!idle.stopAt) idle.stopAt = now;
   const still = (now - idle.stopAt) / 1000;
   idle.k = follow(idle.k, still > S.idleAfter ? 1 : 0, dt, 1.0, 0.12); // slow fade into idle, quick snap back
   if (idle.k < 0.003) return rgb;
-  const beat = Math.exp(-Math.pow((((now / 1000) % 10) - 0.2) / 0.12, 2));
-  return mix(rgb, scale([255, 110, 0], still > 120 ? 0.06 + 0.14 * beat : 0.22 * (0.75 + 0.25 * Math.sin(now / 800))), idle.k);
+  return mix(rgb, parkedColour(now, still), idle.k);
 }
 function tick(now = performance.now()) {
   tVirtual += (now - lastTick) / 1000 * S.speed;
@@ -2350,6 +2379,16 @@ document.querySelectorAll('input[type=range]').forEach(i => { if (!i.getAttribut
 renderNight(); renderBrakeBtns(); renderScenes();
 document.getElementById('idleAfter').value = String(S.idleAfter);
 document.getElementById('idleAfter').addEventListener('change', e => { S.idleAfter = +e.target.value; store('idleAfter', S.idleAfter); idle.k = 0; idle.stopAt = 0; });
+for (const key of ['idleStyle', 'idleDeep']) {
+  const el = document.getElementById(key); el.value = String(S[key]);
+  el.addEventListener('change', e => { S[key] = key === 'idleDeep' ? +e.target.value : e.target.value; store(key, S[key]); });
+}
+document.getElementById('idleColor').value = S.idleColor;
+document.getElementById('idleColor').addEventListener('input', e => { S.idleColor = e.target.value; store('idleColor', S.idleColor); });
+document.getElementById('idleBright').value = Math.round(S.idleBright * 100); document.getElementById('idleBrightVal').textContent = Math.round(S.idleBright * 100) + '%';
+document.getElementById('idleBright').addEventListener('input', e => { S.idleBright = e.target.value / 100; store('idleBright', S.idleBright); document.getElementById('idleBrightVal').textContent = e.target.value + '%'; });
+document.getElementById('idleSpeed').value = Math.round(S.idleSpeed * 10); document.getElementById('idleSpeedVal').textContent = S.idleSpeed.toFixed(1);
+document.getElementById('idleSpeed').addEventListener('input', e => { S.idleSpeed = e.target.value / 10; store('idleSpeed', S.idleSpeed); document.getElementById('idleSpeedVal').textContent = S.idleSpeed.toFixed(1); });
 if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
 selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;

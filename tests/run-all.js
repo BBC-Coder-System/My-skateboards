@@ -742,7 +742,7 @@ test('Aurora/Synthwave never black; Carve flushes by turn side; idle governor di
     performance.now = real;
     return { aur, syn, straight, left, right, c0, c1, c2 };
   });
-  p.ok(r.aur >= 20 && r.syn >= 40, 'aurora/synthwave never black: ' + [r.aur, r.syn].map(Math.round));
+  p.ok(r.aur >= 8 && r.syn >= 25, 'aurora/synthwave never black: ' + [r.aur, r.syn].map(Math.round));
   p.ok(r.left[0] > r.left[2] * 0.8 && r.left[1] < 50 && r.right[1] > 100 && r.right[0] < 40, 'carve: left magenta / right cyan ' + JSON.stringify([r.left, r.right].map(a => a.map(Math.round))));
   p.ok(r.straight[2] > r.straight[1] && r.straight[1] < 10, 'carve straight = violet');
   p.eq(r.c0.map(Math.round), [0, 200, 255], 'moving: effect untouched');
