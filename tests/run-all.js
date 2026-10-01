@@ -702,6 +702,28 @@ test('Neon Tube stutters then settles; Storm flashes blue-violet and decays (sim
   p.ok(r.sMax > 150 && r.sMin > 5, 'storm bolts bright, sky never black: ' + JSON.stringify([r.sMax, r.sMin]));
   p.ok(r.sBolt, 'storm bolt is blue-violet, not white');
 });
+test('Velocity follows GPS speed; Airtime drains in the air and blasts on landing (simulated)', async p => {
+  const r = await p.ev(() => {
+    const real = performance.now.bind(performance); let T = 200000; performance.now = () => T;
+    const ev = byId.velocity, ea = byId.airtime, pv = paramsFor(ev), pa = paramsFor(ea), sv = {}, sa = {};
+    const oldSpeed = brake.speed, oldFix = brake.fixAt, oldAcc = motion.acc;
+    const vel = sp => { brake.speed = sp; let c; for (let i = 0; i < 150; i++) { T += 33; brake.fixAt = T; c = ev.fn(i / 30, pv, sv); } return c; };
+    const slow = vel(0.5), fast = vel(13);
+    // airtime: resting, then 0.3 s weightless, then a 25 m/s2 landing
+    const step = a => { T += 33; motion.acc = a; motion.accAt = T; return ea.fn(T / 1000, pa, sa); };
+    for (let i = 0; i < 20; i++) step(9.8);
+    const rest = step(9.8);
+    let air; for (let i = 0; i < 10; i++) air = step(1);
+    const land = step(25), later = (() => { let c; for (let i = 0; i < 30; i++) c = step(9.8); return c; })();
+    performance.now = real; brake.speed = oldSpeed; brake.fixAt = oldFix; motion.acc = oldAcc;
+    return { slow, fast, rest, air, land, later };
+  });
+  p.ok(r.slow[2] > r.slow[0] + 30 && r.slow[0] < 20, 'slow = cool blue/cyan ' + JSON.stringify(r.slow.map(Math.round)));
+  p.ok(r.fast[0] > 100 && r.fast[0] > r.fast[2] * 2, 'fast = hot red/magenta ' + JSON.stringify(r.fast.map(Math.round)));
+  p.ok(Math.max(...r.air) < Math.max(...r.rest) * 0.6, 'airtime drains while weightless');
+  p.ok(r.land[0] > 200 && r.land[0] > r.land[2], 'landing blasts orange-red ' + JSON.stringify(r.land.map(Math.round)));
+  p.ok(r.later[0] < 100 && r.later[2] > 100, 'back to the base colour after the blast');
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,

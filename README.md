@@ -160,6 +160,11 @@ All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip d
 ### Stage 3 (build styles1): Neon Tube + Storm (Flow tab)
 - Neon Tube: glowing sign with a faint hum, random stutter bursts every few seconds (minimum stutter length scales with the update rate so it stays visible). Storm: slowly swelling violet sky, 2-4 lightning hits per strike in blue-violet (never white), last hit the biggest.
 
+### Stage 4 (build ride-aware1): Velocity + Airtime (Brake tab)
+- Velocity (needs GPS; selecting it also switches the brake light on, they share one GPS watch): cyan -> blue -> violet -> magenta -> red with speed, pulse quickens with speed, short brightness kick on a forward push. Indoors (no GPS fix) it stays calm cyan.
+- Airtime (motion): while |acceleration| < 3.5 m/s2 for 120 ms+ it drains to a faint violet glow; landing (>14 m/s2) blasts orange-red and decays in ~0.35 s, the landing frame is sent urgent.
+- Tests are simulated-clock tests; the real behaviour on a ride is untested.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

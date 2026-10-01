@@ -494,7 +494,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 styles1';
+const APP_BUILD = '2026-10-01 ride-aware1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1296,6 +1296,7 @@ async function startMotion2(quiet) {
     if (lin) brakeMotion(lin, performance.now());
     motion.energy = motion.energy * 0.92 + mag * 0.08;
     motion.jolt = mag;
+    if (g.x != null) { motion.acc = Math.hypot(g.x, g.y, g.z); motion.accAt = performance.now(); }
     if (g.x != null) motion.tiltHue = (Math.atan2(g.y, g.x) * 180 / Math.PI + 360) % 360;
     document.querySelector('#meter2 > div').style.width = Math.min(100, motion.energy * 12) + '%';
   });
@@ -1714,6 +1715,36 @@ const EFFECTS = [
     } },
 
   // ---- Motion ----
+  // Velocity: colour and pulse follow the GPS speed; a push gives a short brightness kick. Needs GPS (also switches the brake light on).
+  { id: 'velocity', group: 'motion', name: 'Velocity', desc: 'Colour follows your GPS speed (turns brake light on)', needs: 'gps',
+    params: { sens: { label: 'Speed scale', min: 0.5, max: 2, step: 0.05, v: 1 }, kick: { label: 'Push kick', min: 0, max: 0.5, step: 0.05, v: 0.3 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st), fresh = brake.speed != null && performance.now() - brake.fixAt < 4000, v = (fresh ? brake.speed : 0) * p.sens;
+      st.v = follow(st.v || 0, v, dt, 0.9, 1.6);
+      const ramp = [[0, [0, 200, 255]], [4, [40, 70, 255]], [7, [170, 0, 255]], [10, [255, 20, 140]], [14, [255, 30, 0]]];
+      let c = ramp[ramp.length - 1][1];
+      for (let i = 1; i < ramp.length; i++) if (st.v < ramp[i][0]) { c = mix(ramp[i - 1][1], ramp[i][1], (st.v - ramp[i - 1][0]) / (ramp[i][0] - ramp[i - 1][0])); break; }
+      st.ph = (st.ph || 0) + (0.5 + st.v * 0.22) * dt; // integrate the phase so the pulse never jumps when speed changes
+      const pulse = 0.65 + 0.35 * Math.sin(2 * Math.PI * st.ph);
+      if ((brake.fEma || 0) > 0.8 && st.v > 0.5) st.k = 1;
+      st.k = decay(st.k || 0, dt, 0.4);
+      return scale(c, Math.min(1, (0.4 + 0.6 * Math.min(1, st.v / 6)) * pulse + p.kick * st.k));
+    } },
+  // Airtime: drains to a faint violet glow while weightless, blasts orange-red on landing.
+  { id: 'airtime', group: 'motion', name: 'Airtime', desc: 'Drains in the air, blasts on landing', needs: 'motion',
+    params: { freeG: { label: 'Weightless below (m/s²)', min: 2, max: 5, step: 0.25, v: 3.5 }, minAir: { label: 'Min air (s)', min: 0.08, max: 0.3, step: 0.01, v: 0.12 },
+      base: { type: 'color', v: '#22d3ee' }, blast: { type: 'color', v: '#ff4a00' } },
+    fn: (t, p, st) => {
+      const now = performance.now(), dt = frameDt(st), fresh = motion.accAt && now - motion.accAt < 500, a = fresh ? motion.acc : 9.8;
+      if (a < p.freeG) { if (!st.f0) st.f0 = now; }
+      else {
+        if (st.f0 && now - st.f0 >= p.minAir * 1000 && a > 14) { st.hit = Math.min(1, 0.5 + (now - st.f0) / 1200 + (a - 14) / 30); urgent = true; } // landing frame must not wait
+        st.f0 = 0;
+      }
+      const air = st.f0 && now - st.f0 >= p.minAir * 1000;
+      st.air = follow(st.air || 0, air ? 1 : 0, dt, 0.05, 0.08); st.hit = decay(st.hit || 0, dt, 0.35);
+      return mix(mix(scale(hexToRgb(p.base), 0.7), [25, 0, 80], st.air), hexToRgb(p.blast), Math.min(1, st.hit));
+    } },
   { id: 'jolt', group: 'motion', name: 'Jolt flash', desc: 'Flash on bumps, landings and stops', needs: 'motion',
     params: { color: { type: 'color', v: '#ff0000' }, base: { type: 'color', v: '#22d3ee' }, thresh: { label: 'Threshold', min: 2, max: 25, step: 0.5, v: 8 } },
     fn: (t, p, st) => { if (motion.jolt > p.thresh) st.k = 1; st.k = (st.k || 0) * 0.88; return mix(scale(hexToRgb(p.base), 0.6), hexToRgb(p.color), st.k); } },
@@ -1796,7 +1827,8 @@ async function runEffect(id, params) {
   const tok = ++effectTok;
   dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
-  if (e.needs === 'motion' && !(await startMotion())) return;
+  if (e.needs === 'motion' || e.needs === 'gps') { const mOk = await startMotion(e.needs === 'gps'); if (e.needs === 'motion' && !mOk) return; }
+  if (e.needs === 'gps') { if (!brake.on) { S.brakeOn = true; store('brakeOn', true); await startBrake(); } if (!chr) toast('Velocity reads GPS speed (also turns the brake light on)'); }
   if (tok !== effectTok) return; // something else was chosen while a permission prompt was open
   scratch = {};
   leaveBuiltin();
@@ -2176,6 +2208,8 @@ const SCENE_DEFS = [
   { n: 'Sunset cruise', fx: 'sunset', bright: 70, brake: 1 },
   { n: 'Neon Alley', fx: 'neon', bright: 90 },
   { n: 'Storm', fx: 'storm', bright: 100 },
+  { n: 'Velocity', fx: 'velocity', bright: 90 },
+  { n: 'Airtime', fx: 'airtime', bright: 100 },
   { n: 'Police', fx: 'police', bright: 100 },
   { n: 'Parked glow', fx: 'breathe', bright: 25, brake: 0 },
 ];
