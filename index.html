@@ -347,6 +347,7 @@
       <button class="small" id="btnNight" style="width:100%" onclick="toggleNight()">🌙 Night dimmer: Off</button>
       <div class="label" style="margin-top:12px">Parked glow</div>
       <div class="hint">When the board stops (GPS speed or motion), colour effects change to this glow. Moving again brings the effect straight back. Music effects are not changed.</div>
+      <div class="hint" id="idleStatus">Sees: –</div>
       <div class="slider"><label>Start after</label><select id="idleAfter" style="flex:1"><option value="0">Off</option><option value="3">3 s</option><option value="5">5 s</option><option value="10">10 s</option><option value="15">15 s</option><option value="30">30 s</option><option value="60">1 min</option></select></div>
       <div class="slider"><label>Style</label><select id="idleStyle" style="flex:1"><option value="breathe">Breathing</option><option value="flash">Flashing</option><option value="heartbeat">Heartbeat</option><option value="steady">Steady</option></select></div>
       <div class="slider"><label>Colour</label><input type="color" id="idleColor" style="flex:1;height:44px"></div>
@@ -502,7 +503,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 stage5b';
+const APP_BUILD = '2026-10-01 stage5c';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1378,6 +1379,8 @@ function onFix(pos) {
     if (last && last.lat != null && c.accuracy <= 30) { const dt = (t - last.t) / 1000; if (dt > 0.3 && dt < 5) v = haversine(last, c) / dt; }
   }
   brake.fixAt = now;
+  dstats.gps = (dstats.gps || 0) + 1;
+  dlog('GPS fix', 'speed ' + (c.speed == null ? 'null' : c.speed.toFixed(2)) + ' m/s -> used ' + (v == null ? 'none' : v.toFixed(2)) + ' · accuracy ' + Math.round(c.accuracy) + ' m · fixes so far ' + dstats.gps, 5000);
   if (v == null) { brakeUi(); return; }
   h.push({ t, v, at: now, lat: c.latitude, lon: c.longitude }); while (h.length > 4) h.shift();
   brake.speed = v;
@@ -1590,9 +1593,15 @@ const EFFECTS = [
         const r2 = Math.random(), mult = kind === 'quick' ? 0.15 + Math.random() * 0.2 : r2 < 0.2 ? 0.2 + Math.random() * 0.3 : r2 < 0.35 ? 1.6 + Math.random() * 1.2 : 0.6 + Math.random() * 0.9;
         st.next = now + p.gap * mult * 1000;
       }
-      let f = 0; for (const h of st.hits || []) { const x = (now - h.at) / 1000; if (x >= 0) f = Math.max(f, h.a * Math.exp(-x / h.tau)); }
-      const sky = scale(b, p.sky + p.sky * 0.7 * nz(t / 4)); // dark and slowly moving, so the bolt has contrast even at full brightness
-      return mix(sky, bo, Math.min(1, f));
+      let f = 0, big = 0; for (const h of st.hits || []) { const x = (now - h.at) / 1000; if (x >= 0) { f = Math.max(f, h.a * Math.exp(-x / h.tau)); if (h.tau > 0.14) big = Math.max(big, h.a * Math.exp(-Math.max(0, x - 0.1) / 1.4)); } }
+      // silent flickers deep in the clouds (small, brief, between the real strikes)
+      if (st.nextFlick === undefined) st.nextFlick = now + 1000;
+      if (now > st.nextFlick) { st.flick = { at: now, a: 0.1 + Math.random() * 0.22 }; st.nextFlick = now + 700 + Math.random() * 2600; }
+      let fl = 0; if (st.flick) { const x = (now - st.flick.at) / 1000; fl = st.flick.a * Math.exp(-x / minTau); }
+      // cloud colour drifts between violet and deep blue; the sky swells after a big strike (thunder rolling in)
+      const cloud = mix(b, [20, 30, 170], 0.55 * nz(t / 6, 21));
+      const sky = scale(cloud, (p.sky + p.sky * 0.7 * nz(t / 4)) * (1 + 1.6 * big)); // dark, so the bolt has contrast even at full brightness
+      return mix(sky, bo, Math.min(1, Math.max(f, fl)));
     } },
   // Aurora: curtains of light that swell out of near-darkness. Mostly green/teal; violet creeps in as a curtain fades; green surges now and then.
   { id: 'aurora', group: 'flow', name: 'Aurora', desc: 'Curtains swell from darkness: green, teal, violet',
@@ -1762,7 +1771,7 @@ const EFFECTS = [
   { id: 'velocity', group: 'motion', name: 'Velocity', desc: 'Colour follows your GPS speed (turns brake light on)', needs: 'gps',
     params: { sens: { label: 'Speed scale', min: 0.5, max: 2, step: 0.05, v: 1 }, kick: { label: 'Push kick', min: 0, max: 0.5, step: 0.05, v: 0.3 } },
     fn: (t, p, st) => {
-      const dt = frameDt(st), fresh = brake.speed != null && performance.now() - brake.fixAt < 4000, v = (fresh ? brake.speed : 0) * p.sens;
+      const dt = frameDt(st), fresh = brake.speed != null && performance.now() - brake.fixAt < 8000, v = (fresh ? brake.speed : 0) * p.sens;
       st.v = follow(st.v || 0, v, dt, 0.9, 1.6);
       const ramp = [[0, [0, 200, 255]], [4, [40, 70, 255]], [7, [170, 0, 255]], [10, [255, 20, 140]], [14, [255, 30, 0]]];
       let c = ramp[ramp.length - 1][1];
@@ -1853,10 +1862,16 @@ function nextFrameTime(t) {
 const idle = { stopAt: 0, k: 0, last: 0 };
 function moving() {
   const now = performance.now();
-  if (brake.on && brake.speed != null && now - brake.fixAt < 5000) return brake.speed > 1;
-  if (motion.on) return motion.energy > 0.35;
+  if (brake.on && brake.speed != null && now - brake.fixAt < 12000) return brake.speed > 1.2; // a recent GPS fix decides
+  if (motion.on) return motion.energy > 1.0;                                                  // otherwise the motion sensor (a hand holding the phone is below this)
   return true; // no way to tell: never dim
 }
+function idleStatusText() {
+  const now = performance.now(), gps = brake.on && brake.speed != null && now - brake.fixAt < 12000;
+  const how = gps ? 'GPS ' + (brake.speed * 3.6).toFixed(1) + ' km/h' : motion.on ? 'motion ' + motion.energy.toFixed(2) + ' (moving above 1.0)' : 'no GPS or motion: it cannot tell, so it never dims';
+  return 'Sees: ' + (moving() ? 'moving' : 'still') + ' · ' + how + (S.idleAfter ? ' · glow ' + Math.round(idle.k * 100) + '%' : ' · feature is off');
+}
+setInterval(() => { const el = document.getElementById('idleStatus'), sh = document.getElementById('settingsSheet'); if (el && sh && !sh.classList.contains('hidden')) el.textContent = idleStatusText(); }, 700);
 function parkedColour(now, still) {
   const c = hexToRgb(S.idleColor), per = S.idleSpeed * 1000, ph = (now % per) / per;
   let k;
@@ -1869,7 +1884,7 @@ function parkedColour(now, still) {
 }
 function idleGov(rgb, now) {
   const dt = Math.min(0.2, (now - (idle.last || now)) / 1000); idle.last = now;
-  if (moving()) idle.stopAt = now; else if (!idle.stopAt) idle.stopAt = now;
+  if (moving()) { if (!idle.mvAt) idle.mvAt = now; if (now - idle.mvAt > 600) idle.stopAt = now; } else { idle.mvAt = 0; if (!idle.stopAt) idle.stopAt = now; } // a move must last 0.6 s to count
   const still = (now - idle.stopAt) / 1000;
   idle.k = follow(idle.k, still > S.idleAfter ? 1 : 0, dt, 1.0, 0.12); // slow fade into idle, quick snap back
   if (idle.k < 0.003) return rgb;
