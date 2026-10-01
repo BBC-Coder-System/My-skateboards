@@ -182,7 +182,7 @@
       <button id="btnPowerRide" class="big pwr" onclick="togglePower()" aria-label="Power">ON</button>
       <button id="btnStartRide" class="big primary" onclick="enterRide()">Start riding</button>
     </div>
-    <div class="links"><a onclick="showTab('flow')">All effects</a> · <a onclick="showTab('music')">Music options</a> · <a onclick="toggleNight()" id="linkNight">🌙 Night dimmer</a> · <a onclick="openSettings()">Settings</a></div>
+    <div class="links"><a onclick="showTab('flow')">All effects</a> · <a onclick="showTab('music')">Music options</a> · <a onclick="togglePocket()" id="linkPocket">🧥 Pocket mode</a> · <a onclick="toggleNight()" id="linkNight">🌙 Night dimmer</a> · <a onclick="openSettings()">Settings</a></div>
   </section>
 
   <section id="tab-colour" class="hidden">
@@ -200,7 +200,9 @@
   <section id="tab-flash" class="hidden"><div class="card"><div class="label">Flash &amp; strobe</div><div class="tiles" data-group="flash"></div></div></section>
     <section id="tab-music" class="hidden">
     <div class="card">
-      <div class="label">Music source</div>
+      <button id="btnPocket" class="small" style="width:100%" onclick="togglePocket()">🧥 Pocket mode: Off</button>
+      <div class="hint">For a speaker blasting at the phone in your pocket: listens for the beat with the microphone, ignores road thumps, and copes with muffled sound and wind. Turn it on, pick an effect, then tap Start riding.</div>
+      <div class="label" style="margin-top:12px">Music source</div>
       <div class="row" id="srcBtns" style="margin-top:0">
         <button class="small" data-src="tempo">👆 Tempo</button>
         <button class="small" data-src="player">🎵 Player</button>
@@ -504,7 +506,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 smooth1';
+const APP_BUILD = '2026-10-02 pocket1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -563,7 +565,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  pocket: load('pocket', false), autoWanted: load('autoTempo', false), idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -820,6 +822,7 @@ function bandsOf(an) {
   an.getByteFrequencyData(an._buf);
   const bins = an._buf.length, hz = audio.ctx.sampleRate / 2 / bins;
   const band = (lo, hi) => { let t = 0, n = 0; for (let i = Math.floor(lo / hz); i < Math.min(bins, hi / hz); i++) { t += an._buf[i]; n++; } return n ? t / n / 255 : 0; };
+  if (S.pocket) return { bass: band(30, 150), mid: band(150, 600), treble: band(600, 1500) }; // a muffled pocket keeps these; above ~1.5 kHz it is only noise
   return { bass: band(30, 180), mid: band(180, 2000), treble: band(2000, 8000) };
 }
 // Automatic gain: every band is divided by its own recent peak (falls off over ~10 s), and anything under
@@ -844,7 +847,11 @@ function agcNorm(ag, raw) {
       // lights stayed dark for about a minute while it eased back down.)
       ag[k] = raw[k] > ag[k] ? ag[k] + (raw[k] - ag[k]) * (1 - Math.exp(-dt / 1.5)) : ag[k] - dt * 0.0025;
       ag[k] = Math.max(ag[k], 0.05);
-      out[k] = Math.min(1, Math.max(0, (Math.pow(10, (raw[k] - ag[k]) * 70 / 32) - 0.1) / 0.9));
+      if (S.pocket) { // levels above the slowly-tracked noise floor: wind and road rumble stop looking like music, and the lights can go dark again
+        const fl = ag.fl || (ag.fl = {}); fl[k] = fl[k] == null ? raw[k] : Math.min(raw[k], fl[k] + dt / 560);
+        if (ag[k] - fl[k] < 8 / 70) out[k] = 0;
+        else { const lo = fl[k] + 3 / 70; out[k] = Math.min(1, Math.pow(Math.max(0, (raw[k] - lo) / Math.max(0.05, ag[k] - lo)), 1.6)); }
+      } else out[k] = Math.min(1, Math.max(0, (Math.pow(10, (raw[k] - ag[k]) * 70 / 32) - 0.1) / 0.9));
     } else {
       ag[k] = Math.max(raw[k], ag[k] * Math.exp(-dt / 14), AGC_FLOOR);
       out[k] = Math.max(0, (raw[k] / ag[k] - AGC_GATE) / (1 - AGC_GATE));
@@ -854,6 +861,45 @@ function agcNorm(ag, raw) {
   (ag.hist || (ag.hist = [])).push([now, raw.bass, raw.mid, raw.treble]);
   while (ag.hist.length > 700 || (ag.hist.length && now - ag.hist[0][0] > 10000)) ag.hist.shift();
   return out;
+}
+// ---- Pocket mode: speaker blasting at the phone in a pocket ----
+let pocketWatch = null;
+function renderPocket() {
+  const b = document.getElementById('btnPocket'); if (!b) return;
+  b.textContent = '🧥 Pocket mode: ' + (S.pocket ? 'On' : 'Off'); b.classList.toggle('primary', S.pocket);
+  const l = document.getElementById('linkPocket'); if (l) l.textContent = S.pocket ? '🧥 Pocket mode: on' : '🧥 Pocket mode';
+}
+async function togglePocket(force) {
+  const on = force !== undefined ? force : !S.pocket;
+  getCtx(); // inside the tap: iOS only starts audio then
+  S.pocket = on; store('pocket', on);
+  for (const ag of Object.values(agc)) { ag.fl = null; for (const k of ['bass', 'mid', 'treble']) ag[k] = 0; } // band definitions changed: start the references fresh
+  audio.prevBass = null;
+  renderPocket();
+  clearInterval(pocketWatch); pocketWatch = null;
+  if (!on) { toast('Pocket mode off'); return; }
+  S.levelMode = 'follow'; store('levelMode', 'follow'); S.beatDiv = 'auto'; store('beatDiv', 'auto');
+  { const a = document.getElementById('levelMode'), c = document.getElementById('beatDiv'); if (a) a.value = 'follow'; if (c) c.value = 'auto'; }
+  selectSource('tempo');
+  if (!auto.on) await toggleAuto(true);
+  startMotion(true); // for ignoring road thumps
+  const cur = S.current && S.current.kind === 'effect' ? byId[S.current.id] : null;
+  if (!cur || cur.needs !== 'audio') runEffect(S.lastMusic || 'mpump');
+  pocketWatch = setInterval(micWatch, 1500);
+  toast('Pocket mode on: listening for the beat');
+}
+// If the microphone or the audio engine dies (a call, Siri, another app), say so and try to recover instead of flashing at nothing.
+function micWatch() {
+  if (!S.pocket) return;
+  const ctx = audio.ctx, tr = audio.micStream && audio.micStream.getAudioTracks()[0];
+  if (ctx && ctx.state !== 'running') { ctx.resume().catch(() => {}); if (!audio.micLost) { audio.micLost = true; dlog('MIC', 'audio engine ' + ctx.state + ', resuming'); micHint('Audio was interrupted. Trying to resume…', true); } return; }
+  if (auto.on && (!tr || tr.readyState !== 'live')) {
+    if (!audio.micLost) { audio.micLost = true; dlog('MIC LOST', 'microphone track ' + (tr ? tr.readyState : 'missing')); micHint('Microphone lost. Trying again…', true); }
+    audio.micStream = null; audio.micAn = null; auto.proc = null;
+    toggleAuto(true).then(() => { if (audio.micStream) { audio.micLost = false; micHint('Listening 🎤'); } });
+    return;
+  }
+  if (audio.micLost) { audio.micLost = false; micHint('Listening 🎤'); }
 }
 function resetLevelRef() {
   for (const ag of Object.values(agc)) for (const k of ['bass', 'mid', 'treble']) ag[k] = ag.raw ? Math.max(ag.raw[k] * 1.3, 0.05) : 0;
@@ -1013,9 +1059,73 @@ function sampleTempo(now) {
   }
   applyFrame(f, now, false);
 }
+// Song-section detector (see README). Leans on bass onsets and timing, which survive a muffled pocket speaker.
+class Sections {
+  constructor() { this.t0 = null; this.state = 'steady'; this.since = 0; this.tension = 0; this.dropK = 0; this.lastBeat = -1e9; this.rate = 0; this.rateSlow = 0; this.bassE = 0; this.peak = 0; this.levelE = 0; this.air = 0; this.airSlow = 0; this.silentSince = null; this.quietSince = null; }
+  _set(st, now) { if (st !== this.state) { this.prev = this.state; this.state = st; this.since = now; } }
+  update(f, dt, now) {
+    if (this.t0 === null) this.t0 = now;
+    const k = tau => 1 - Math.exp(-dt / tau), out = { songChange: false };
+    const warm = now - this.t0 < 12;
+    this.rate += ((f.beat ? 1 / dt : 0) - this.rate) * k(2.0); this.rateSlow += ((f.beat ? 1 / dt : 0) - this.rateSlow) * k(10);
+    if (f.beat) this.lastBeat = now;
+    this.bassE += (f.bass - this.bassE) * k(0.4); this.bassSlow = (this.bassSlow === undefined ? f.bass : this.bassSlow) + (f.bass - (this.bassSlow === undefined ? f.bass : this.bassSlow)) * k(8); this.levelE += (Math.max(f.level, f.mid * 0.6) - this.levelE) * k(0.6);
+    const air = Math.max(f.mid, f.treble);
+    this.air += (air - this.air) * k(0.8); this.airSlow += (air - this.airSlow) * k(12);
+    this.dropK *= Math.exp(-dt / 1.2);
+    if (warm) { this.airSlow = this.air; this.rateSlow = this.rate; this.bassSlow = this.bassE; this.peak = 0; return Object.assign(out, this.snapshot()); }
+    if (!(this.state === 'drop' && now - this.since < 2)) this.peak = Math.max(this.bassE, this.peak * Math.exp(-dt / 90));
+    const noKick = now - this.lastBeat, music = this.levelE > 0.1;
+    if (!music) { if (this.silentSince === null) this.silentSince = now; } else { if (this.silentSince !== null && now - this.silentSince > 2.0) { out.songChange = true; this.peak = 0; this.rateSlow = 0; } this.silentSince = null; }
+    const silent = this.silentSince !== null && now - this.silentSince > 2.0;
+    const risingNow = this.air - this.airSlow > 0.12 && this.air > 0.35; this.risingFor = risingNow ? (this.risingFor || 0) + dt : 0;
+    const rising = this.risingFor > 2.0;
+    const accel = this.rate > 2.0 && this.rate > 1.35 * Math.max(0.5, this.rateSlow);
+    const kickBack = noKick < 0.35 && this.bassE >= Math.max(0.28, 0.75 * this.peak);
+    if (silent) { this._set('silence', now); this.tension = Math.max(0, this.tension - dt / 1.5); return Object.assign(out, this.snapshot()); }
+    switch (this.state) {
+      case 'silence': this._set('steady', now); break;
+      case 'steady':
+        if (noKick > 1.4 && this.bassE < 0.1) { this._set('quiet', now); this.quietSince = now; }
+        else if (rising || accel) this._set('build', now);
+        else if (noKick < 0.35 && now - this.since > 3 && this.air < this.airSlow + 0.05 && this.bassE > Math.max(0.35, 1.35 * this.bassSlow)) { this._set('drop', now); this.dropK = 0.8; this.tension = 0; }
+        break;
+      case 'quiet':
+        this.tension = Math.min(1, this.tension + dt / 10);
+        if (rising || accel) this._set('build', now);
+        else if (kickBack && now - this.quietSince > 1.5) { this._set('drop', now); this.dropK = Math.min(1, 0.5 + this.tension); this.tension = 0; }
+        else if (noKick < 0.35 && this.bassE > 0.1) { this._set('steady', now); }
+        break;
+      case 'build': {
+        this.tension = Math.min(1, this.tension + dt / 8); this.buildRate = Math.max(this.buildRate || 0, this.rate);
+        const strongKick = noKick < 0.35 && this.bassE >= Math.max(0.35, 0.9 * this.peak), rateFell = this.rate < 0.75 * this.buildRate, airFell = this.air < this.airSlow - 0.3 && this.bassE > 0.25;
+        if (now - this.since > 1.0 && ((strongKick && (rateFell || airFell || !accel)) || airFell)) { this._set('drop', now); this.dropK = Math.min(1, 0.6 + this.tension * 0.4); this.tension = 0; this.buildRate = 0; }
+        else if (now - this.since > 25) this._set('steady', now);
+        else if (noKick > 1.4 && this.bassE < 0.1 && !rising && !accel && now - this.since > 4) { this._set('quiet', now); this.quietSince = now; }
+        break; }
+      case 'drop':
+        if (now - this.since < 4 && this.bassE > 1.3 * (this.bassAtDrop || 1) && this.dropK < 0.5) this.dropK = 1;
+        if (this.since === now) this.bassAtDrop = this.bassE;
+        if (now - this.since > 6 && (noKick > 1.4 || this.bassE < 0.5 * this.peak)) this._set(noKick > 1.4 ? 'quiet' : 'steady', now);
+        else if (now - this.since > 16) this._set('steady', now);
+        break;
+    }
+    if (this.state !== 'build' && this.state !== 'quiet') this.tension = Math.max(0, this.tension - dt / 2);
+    return Object.assign(out, this.snapshot());
+  }
+  snapshot() { return { state: this.state, since: this.since, tension: this.tension, dropK: this.dropK }; }
+}
+const music = { sec: { state: 'steady', tension: 0, dropK: 0, songChange: false } };
+let secDet = new Sections(), secPrev = 'steady', secAt = 0;
+function updateSections(now) {
+  const t = now / 1000, dt = Math.min(0.2, Math.max(0.001, t - (secAt || t))); secAt = t;
+  music.sec = secDet.update({ beat: audio.beat, bass: audio.bass, mid: audio.mid, treble: audio.treble, level: audio.level }, dt, t);
+  if (music.sec.state !== secPrev) { dlog('SECTION', secPrev + ' -> ' + music.sec.state + ' (tension ' + music.sec.tension.toFixed(2) + ', drop ' + music.sec.dropK.toFixed(2) + ')'); secPrev = music.sec.state; }
+}
 function updateAudio(now) { // once per engine tick
   if (S.audioSrc === 'tempo') sampleTempo(now);
   audio.beat = audio.beatCount !== audio.seen; audio.seen = audio.beatCount;
+  updateSections(now);
 }
 let beatFlashT;
 function flashBeat() {
@@ -1132,7 +1242,7 @@ async function toggleAuto(force) {
     if (S.audioSrc !== 'mic') stopMic();
     autoStatus('Auto-listen is off. Tap the beat, or turn Auto-listen on.');
   }
-  auto.on = on; store('autoTempo', on);
+  auto.on = on; S.autoWanted = on; store('autoTempo', on);
   document.getElementById('btnAuto').textContent = '🎧 Auto-listen: ' + (on ? 'On' : 'Off');
   document.getElementById('btnAuto').classList.toggle('primary', on);
 }
@@ -1172,7 +1282,13 @@ function autoBlock(ev) {
   while (auto.env.length && auto.env[0][0] < auto.clock - 8000) auto.env.shift();
 }
 function autoEstimate() {
-  const env = auto.env; if (env.length < 50) return;
+  let env = auto.env; if (env.length < 50) return;
+  // Pocket mode: a thump from the board (a pavement joint) shakes the phone AND reaches the microphone, and at 2-3 per second
+  // it looks like a beat. Onsets that line up with a jolt on the motion sensor (from 30 ms before to 90 ms after) count 85% less.
+  if (S.pocket && motion.on && moving() && motion.hits && motion.hits.length) {
+    const hs = motion.hits; let j = 0;
+    env = env.map(([t, v]) => { while (j < hs.length && hs[j] + 90 < t) j++; for (let q = j; q < hs.length && hs[q] - 30 <= t; q++) if (t >= hs[q] - 30 && t <= hs[q] + 90) return [t, v * 0.15]; return [t, v]; });
+  }
   const t0 = env[0][0], t1 = env[env.length - 1][0];
   if (t1 - t0 < 5000) { autoStatus('Listening… ' + Math.round((t1 - t0) / 1000) + ' s'); return; }
   // resample to 100 Hz (timers aren't exact), then keep only the rises above the local average
@@ -1318,6 +1434,9 @@ async function startMotion2(quiet) {
     if (lin) brakeMotion(lin, performance.now());
     motion.energy = motion.energy * 0.92 + mag * 0.08;
     motion.jolt = mag;
+    { const nowM = performance.now(), mg = motion.mags || (motion.mags = []);
+      if (mg.length >= 3) { const med = [...mg].sort((a, b) => a - b)[1]; if (mag - med > 2.0) { (motion.hits || (motion.hits = [])).push(nowM); if (motion.hits.length > 40) motion.hits.shift(); } }
+      mg.push(mag); if (mg.length > 3) mg.shift(); }
     const rr = e.rotationRate; if (rr && rr.alpha != null) motion.rot = [rr.alpha, rr.beta, rr.gamma].map(v => v * Math.PI / 180);
     if (g.x != null) { motion.acc = Math.hypot(g.x, g.y, g.z); motion.accAt = performance.now(); }
     if (g.x != null) motion.tiltHue = (Math.atan2(g.y, g.x) * 180 / Math.PI + 360) % 360;
@@ -1754,6 +1873,73 @@ const EFFECTS = [
       return st.c.map(x => 255 * x ** 1.3);
     } },
   // A built-in moving effect (keeps its motion along the strip) that pumps brightness deeply, and its speed, with the beat.
+  // ---- pocket-proof music effects: they rest on bass onsets and timing, not on highs ----
+  { id: 'mpump', group: 'music', name: 'Sidechain pump', desc: 'Every kick pushes the light down, it swells back', needs: 'audio',
+    params: { a: { type: 'color', v: '#7c4dff' }, b: { type: 'color', v: '#00e5ff' }, depth: { label: 'Pump depth', min: 0.2, max: 1, step: 0.05, v: 0.75 }, release: { label: 'Swell back (s)', min: 0.1, max: 0.8, step: 0.02, v: 0.32 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st);
+      if (audio.beat) st.duck = 1;
+      st.duck = decay(st.duck || 0, dt, p.release);
+      st.body = follow(st.body || 0, Math.min(1, 0.35 + audio.level * 0.9), dt, 0.1, 0.4);
+      st.e = (st.e || 0) + audio.bass * dt * 0.12;                       // colour travels with accumulated bass
+      const m = 0.5 - 0.5 * Math.cos(2 * Math.PI * st.e);
+      return scale(mix(hexToRgb(p.a), hexToRgb(p.b), m), 0.1 + 0.9 * st.body * (1 - p.depth * st.duck));
+    } },
+  { id: 'mkick', group: 'music', name: 'Kick snap', desc: 'Each kick snaps to a new colour, then cools to blue', needs: 'audio',
+    params: { glow: { label: 'Afterglow (s)', min: 0.2, max: 1.2, step: 0.05, v: 0.55 }, floor: { label: 'Dimmest', min: 0.05, max: 0.4, step: 0.01, v: 0.12 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st), pal = ['#ff2a6d', '#ffb000', '#00e5ff', '#7c4dff', '#39ff88'];
+      if (audio.beat) { st.i = (st.i === undefined ? 0 : st.i + 1); st.age = 0; }
+      st.age = (st.age === undefined ? 9 : st.age + dt);
+      const c = hexToRgb(pal[(st.i || 0) % pal.length]), cool = mix(c, [0, 40, 160], 0.7);
+      return scale(mix(c, cool, 1 - Math.exp(-st.age / (p.glow * 0.6))), p.floor + (1 - p.floor) * Math.exp(-st.age / (p.glow * 0.45)));
+    } },
+  { id: 'mlava', group: 'music', name: 'Bass lava', desc: 'Only the bass drives it: heavy slow swells', needs: 'audio',
+    params: { span: { label: 'Colour range', min: 30, max: 180, step: 5, v: 120 }, base: { label: 'Base hue', min: 0, max: 360, step: 5, v: 300 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st);
+      st.b = follow(st.b || 0, audio.bass, dt, 0.08, 0.5);
+      st.h = (st.h || 0) + (8 + 160 * st.b) * dt;
+      return hsv(p.base + p.span * Math.sin(st.h * Math.PI / 180), 1, 0.2 + 0.8 * st.b ** 1.3);
+    } },
+  { id: 'maccent', group: 'music', name: 'Bar accent', desc: 'One cold flash per bar, new colour each bar', needs: 'audio',
+    params: { len: { label: 'Flash (s)', min: 0.07, max: 0.3, step: 0.01, v: 0.1 }, gain: { label: 'Bass swell', min: 0.3, max: 2, step: 0.05, v: 1 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st), now = performance.now();
+      if (audio.beat) {
+        st.n = (st.n || 0) + 1;
+        const one = S.audioSrc === 'tempo' ? (((tempo.lastHitIdx || 0) % 4) + 4) % 4 === 0 : st.n % 4 === 1; // beat 1 of the bar
+        if (one && now - (st.flashAt || -1e9) > 400) { st.flashAt = now; st.bar = (st.bar || 0) + 1; }
+      }
+      const fl = Math.max(0, 1 - (now - (st.flashAt || -1e9)) / (p.len * 1000 + 33));                        // lasts at least 2 frames
+      st.v = follow(st.v === undefined ? 0.3 : st.v, Math.min(1, 0.3 + audio.bass * p.gain), dt, 0.05, 0.3);
+      return mix(scale(hsv(200 + 55 * ((st.bar || 0) % 5), 0.9, 1), st.v), [190, 225, 255], fl);
+    } },
+  { id: 'mheart', group: 'music', name: 'Kick heartbeat', desc: 'Lub-dub on every kick, violet in the drop', needs: 'audio',
+    params: { color: { type: 'color', v: '#d6188f' }, dub: { label: 'Second beat', min: 0.2, max: 1, step: 0.05, v: 0.6 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st), now = performance.now(), sec = music.sec;
+      if (audio.beat) { st.lub = now; st.dubbed = false; st.k = 1; }
+      if (st.lub && !st.dubbed && now - st.lub > 150) { st.dubbed = true; st.k = Math.max(st.k, p.dub); }
+      st.k = decay(st.k || 0, dt, 0.11);
+      const warm = mix(hexToRgb(p.color), [150, 0, 255], Math.min(1, sec.tension + 0.5 * sec.dropK));
+      return scale(warm, 0.14 + 0.86 * Math.max(st.k, 0.3 * Math.min(1, audio.level)));
+    } },
+  { id: 'mdrop', group: 'music', name: 'Build and drop', desc: 'Breakdown glows and tenses, the drop blasts', needs: 'audio',
+    params: { calm: { type: 'color', v: '#1a3cff' }, hot: { type: 'color', v: '#ff2a6d' }, blast: { type: 'color', v: '#bfe3ff' }, gain: { label: 'Sensitivity', min: 0.5, max: 2, step: 0.05, v: 1 } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st), sec = music.sec;
+      st.ten = follow(st.ten || 0, sec.tension, dt, 0.25, 0.6);
+      st.k = audio.beat ? 1 : decay(st.k || 0, dt, 0.16);
+      st.blast = Math.max(decay(st.blast || 0, dt, 0.9), sec.dropK);
+      let col = mix(hexToRgb(p.calm), hexToRgb(p.hot), st.ten);
+      const hush = sec.state === 'quiet' || sec.state === 'silence';
+      let v = hush ? 0.12 + 0.1 * (0.5 - 0.5 * Math.cos(t * 1.2)) + 0.35 * st.ten : 0.25 + 0.55 * Math.min(1, audio.level * 1.3 * p.gain) + 0.35 * st.k;
+      st.ph = (st.ph || 0) + (2 + 6 * st.ten) * dt;
+      v *= 1 - 0.3 * st.ten * (0.5 - 0.5 * Math.cos(2 * Math.PI * st.ph));                                    // flutter quickens as tension builds, but only 30% deep
+      col = mix(col, hexToRgb(p.hot), st.blast * 0.5); col = mix(col, hexToRgb(p.blast), Math.max(0, st.blast - 0.35) / 0.65);
+      return scale(col, Math.max(0.06, Math.min(1, v + st.blast * 0.8)));
+    } },
   { id: 'mbuiltin', group: 'music', name: 'Built-in on the beat', desc: 'A moving strip effect that pumps with the beat', needs: 'audio',
     params: {
       fx: { type: 'select', label: 'Effect', v: 103, restart: true,
@@ -1943,6 +2129,7 @@ async function runEffect(id, params) {
   const tok = ++effectTok; idle.stopAt = performance.now(); // picking something counts as activity: the new effect shows for the 'Start after' time before parking
   dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
+  if (e.needs === 'audio' && S.autoWanted && !auto.on && S.audioSrc === 'tempo') toggleAuto(true); // Auto-listen was on last time: this tap lets iOS start the mic again
   if (e.needs === 'motion' || e.needs === 'gps') { const mOk = await startMotion(e.needs === 'gps'); if (e.needs === 'motion' && !mOk) return; }
   if (e.needs === 'gps') { if (!brake.on) { S.brakeOn = true; store('brakeOn', true); await startBrake(); } if (!chr) toast('Velocity reads GPS speed (also turns the brake light on)'); }
   if (tok !== effectTok) return; // something else was chosen while a permission prompt was open
@@ -1950,7 +2137,7 @@ async function runEffect(id, params) {
   leaveBuiltin();
   // Saved parameters are merged over today's defaults (a parameter added later would otherwise be undefined -> NaN) and cloned
   // (so moving a slider can't silently change the saved favourite).
-  if (e.needs === 'audio') { S.lastMusic = id; store('lastMusic', id); }
+  if (e.needs === 'audio') { S.lastMusic = id; store('lastMusic', id); secDet = new Sections(); secAt = 0; secPrev = 'steady'; music.sec = { state: 'steady', tension: 0, dropK: 0, songChange: false }; }
   S.current = { kind: 'effect', id, params: params ? { ...paramsFor(e), ...JSON.parse(JSON.stringify(params)) } : paramsFor(e) };
   ensureOn();
   if (e.start) e.start(S.current.params, scratch);
@@ -2329,6 +2516,7 @@ const SCENE_DEFS = [
   { n: 'Aurora cruise', fx: 'aurora', bright: 70 },
   { n: 'Synthwave', fx: 'synth', bright: 90 },
   { n: 'Carve', fx: 'carve', bright: 90 },
+  { n: 'Pump', fx: 'mpump', bright: 100 },
   { n: 'Police', fx: 'police', bright: 100 },
   { n: 'Parked glow', fx: 'breathe', bright: 25, brake: 0 },
 ];
@@ -2408,12 +2596,12 @@ setInterval(() => {
   const ag = S.audioSrc === 'mic' ? agc.mic : S.audioSrc === 'player' ? agc.play : (auto.on ? agc.tempo : null), f2 = v => (v || 0).toFixed(2);
   const cv = dstats.cv.filter(c => now - c[0] < 10000).map(c => c[1]);
   const sent = cv.length ? `${Math.round(cv.reduce((a, b) => a + b, 0) / cv.length)}/${Math.max(...cv)}` : '-';
-  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.audioSrc === 'tempo' ? S.bpm.toFixed(1) : (detBpm() ? detBpm().toFixed(1) + '(est)' : '-')} div=${S.audioSrc === 'tempo' ? beatDiv() : detDiv()} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent} writeMs=${wstat()} slowCmds/s=${((dstats.sl || []).filter(t => now - t < 10000).length / 10).toFixed(1)}` + (ag && ag.hist && ag.hist.length ? ` raw10sMax=${[1, 2, 3].map(i => f2(Math.max(...ag.hist.map(h => h[i])))).join('/')} raw10sAvg=${[1, 2, 3].map(i => f2(ag.hist.reduce((a, h) => a + h[i], 0) / ag.hist.length)).join('/')} ref=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + ` micGain=${S.micGainDb}dB` + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
+  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.audioSrc === 'tempo' ? S.bpm.toFixed(1) : (detBpm() ? detBpm().toFixed(1) + '(est)' : '-')} div=${S.audioSrc === 'tempo' ? beatDiv() : detDiv()} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent} writeMs=${wstat()} slowCmds/s=${((dstats.sl || []).filter(t => now - t < 10000).length / 10).toFixed(1)}` + (ag && ag.hist && ag.hist.length ? ` raw10sMax=${[1, 2, 3].map(i => f2(Math.max(...ag.hist.map(h => h[i])))).join('/')} raw10sAvg=${[1, 2, 3].map(i => f2(ag.hist.reduce((a, h) => a + h[i], 0) / ag.hist.length)).join('/')} ref=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + ` micGain=${S.micGainDb}dB pocket=${S.pocket ? 'on' : 'off'} ctx=${audio.ctx ? audio.ctx.state + '/' + (audio.ctx.baseLatency || 0).toFixed(3) : '-'} mic=${audio.micStream && audio.micStream.getAudioTracks()[0] ? audio.micStream.getAudioTracks()[0].readyState : '-'} jolts=${(motion.hits || []).filter(h => performance.now() - h < 10000).length}/10s section=${music.sec.state}` + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
 }, 10000);
 document.getElementById('brightRide').value = Math.round(S.bright * 100);
 document.getElementById('brightRide').addEventListener('input', e => { const t = document.getElementById('bright'); t.value = e.target.value; t.dispatchEvent(new Event('input')); });
 document.querySelectorAll('input[type=range]').forEach(i => { if (!i.getAttribute('aria-label')) { const l = i.closest('.slider') && i.closest('.slider').querySelector('label'); i.setAttribute('aria-label', (l && l.textContent) || 'slider'); } });
-renderNight(); renderBrakeBtns(); renderScenes();
+renderNight(); renderBrakeBtns(); renderScenes(); renderPocket();
 document.getElementById('idleAfter').value = String(S.idleAfter);
 document.getElementById('idleAfter').addEventListener('change', e => { S.idleAfter = +e.target.value; store('idleAfter', S.idleAfter); idle.k = 0; idle.stopAt = 0; });
 for (const key of ['idleStyle', 'idleDeep']) {

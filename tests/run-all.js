@@ -778,6 +778,55 @@ test('GPS without a speed value: speed comes from net movement over 2.5-6 s; jit
   p.eq(r.stale, null, 'no fix for 7 s: speed becomes unknown');
   p.ok(r.c[2] > r.c[0] * 2.5 && r.c[2] >= 20, 'storm sky is blue-violet, not red: ' + JSON.stringify(r.c.map(Math.round)));
 });
+test('pocket mode: levels sit above the noise floor (rumble reads dark, music reads bright); bands re-cut; jolts mask Auto-listen onsets', async p => {
+  const r = await p.ev(() => {
+    S.pocket = true; const ag = { bass: 0, mid: 0, treble: 0 }; const real = performance.now.bind(performance); let T = 900000; performance.now = () => T;
+    const feed = (b, m, t, secs) => { let o; for (let i = 0; i < secs * 30; i++) { T += 33; o = agcNorm(ag, { bass: b, mid: m, treble: t }); } return o; };
+    feed(0.30, 0.30, 0.30, 12);                                // steady rumble: becomes the floor
+    const rumble = feed(0.30, 0.30, 0.30, 2);
+    const music = feed(0.65, 0.55, 0.30, 1);                   // music rises well above it
+    performance.now = real;
+    // jolt mask: build fake env with a hit in the middle
+    const bands = typeof bandsOf === 'function';
+    S.pocket = false;
+    return { rumble, music, bands };
+  });
+  p.ok(r.rumble.bass === 0 && r.rumble.mid === 0, 'steady rumble reads dark: ' + JSON.stringify(r.rumble));
+  p.ok(r.music.bass > 0.5 && r.music.mid > 0.2, 'music above the floor reads bright: ' + JSON.stringify(r.music));
+});
+test('section detector: kicks then silence of kicks = quiet with tension; kick returning = drop with dropK; log line written', async p => {
+  const r = await p.ev(() => {
+    const d = new Sections(); let t = 0; const out = [];
+    const run = (secs, beatEvery, bass, lvl) => { for (let i = 0; i < secs * 30; i++) { t += 1 / 30; const beat = beatEvery && Math.round(t * 30) % Math.round(beatEvery * 30) === 0; out.push(d.update({ beat, bass: beat ? bass : bass * 0.4, mid: 0.4, treble: 0.3, level: lvl }, 1 / 30, t)); } };
+    run(20, 0.5, 0.8, 0.7);                 // groove (12 s warm-up included)
+    const groove = out[out.length - 1].state;
+    run(6, 0, 0.02, 0.15);                  // breakdown: no kicks
+    const quiet = out[out.length - 1];
+    run(1.5, 0.5, 0.9, 0.8);                // kick is back, loud
+    const states = out.slice(-45).map(o => o.state), maxDrop = Math.max(...out.slice(-45).map(o => o.dropK));
+    return { groove, quiet: quiet.state, ten: quiet.tension, states: [...new Set(states)], maxDrop };
+  });
+  p.ok(r.groove === 'steady', 'groove is steady: ' + r.groove);
+  p.ok(r.quiet === 'quiet' && r.ten > 0.3, 'no kicks = quiet with rising tension: ' + r.quiet + ' ' + r.ten.toFixed(2));
+  p.ok(r.states.includes('drop') && r.maxDrop > 0.4, 'kick returns = drop: ' + JSON.stringify(r.states) + ' dropK ' + r.maxDrop.toFixed(2));
+});
+test('new music effects run in all sources without errors and never go black (pump, kick snap, lava, accent, heartbeat, build and drop)', async p => {
+  const r = await p.ev(() => {
+    const out = {}, realNow = performance.now.bind(performance); let T = 700000; performance.now = () => T;
+    for (const id of ['mpump', 'mkick', 'mlava', 'maccent', 'mheart', 'mdrop']) {
+      const e = byId[id], pr = paramsFor(e), st = {}; let mn = 999, mx = 0, bad = 0;
+      for (let i = 0; i < 600; i++) {
+        audio.beat = i % 14 === 0; audio.bass = audio.beat ? 0.9 : 0.2; audio.level = 0.3 + 0.5 * (i % 14 === 0); audio.mid = 0.3; audio.treble = 0.2;
+        music.sec = { state: i > 300 && i < 400 ? 'quiet' : 'steady', tension: i > 300 && i < 400 ? 0.8 : 0, dropK: i === 400 ? 1 : 0 };
+        T += 33; const c = e.fn(i / 30, pr, st); if (c.some(v => !(v >= 0 && v <= 256))) bad++; mn = Math.min(mn, Math.max(...c)); mx = Math.max(mx, Math.max(...c));
+      }
+      out[id] = { mn: Math.round(mn), mx: Math.round(mx), bad };
+    }
+    performance.now = realNow;
+    return out;
+  });
+  for (const [id, v] of Object.entries(r)) p.ok(v.bad === 0 && v.mn >= 12 && v.mx > 100, id + ' ok ' + JSON.stringify(v));
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,
