@@ -724,6 +724,31 @@ test('Velocity follows GPS speed; Airtime drains in the air and blasts on landin
   p.ok(r.land[0] > 200 && r.land[0] > r.land[2], 'landing blasts orange-red ' + JSON.stringify(r.land.map(Math.round)));
   p.ok(r.later[0] < 100 && r.later[2] > 100, 'back to the base colour after the blast');
 });
+test('Aurora/Synthwave never black; Carve flushes by turn side; idle governor dims when still and snaps back (simulated)', async p => {
+  const r = await p.ev(() => {
+    const real = performance.now.bind(performance); let T = 300000; performance.now = () => T;
+    const lo = id => { const e = byId[id], pr = paramsFor(e), st = {}; let m = 1e9; for (let i = 0; i < 30 * 60; i++) { T += 33; m = Math.min(m, Math.max(...e.fn(i / 30, pr, st))); } return m; };
+    const aur = lo('aurora'), syn = lo('synth');
+    const ec = byId.carve, pc = paramsFor(ec), sc = {}; motion.grav = [0, 0, 9.8];
+    const turn = z => { motion.rot = [0, 0, z]; let c; for (let i = 0; i < 30; i++) { T += 33; c = ec.fn(T / 1000, pc, sc); } return c; };
+    const straight = turn(0), left = turn(1.2), right = turn(-1.2);
+    // idle governor
+    S.idleAfter = 5; idle.k = 0; idle.stopAt = 0; idle.last = 0; const savedBrake = { on: brake.on, speed: brake.speed, fixAt: brake.fixAt }; brake.on = true;
+    const col = [0, 200, 255]; let c0;
+    brake.speed = 5; for (let i = 0; i < 60; i++) { T += 33; brake.fixAt = T; c0 = idleGov(col, T); }
+    brake.speed = 0; let c1; for (let i = 0; i < 30 * 12; i++) { T += 33; brake.fixAt = T; c1 = idleGov(col, T); }
+    brake.speed = 6; let c2; for (let i = 0; i < 40; i++) { T += 33; brake.fixAt = T; c2 = idleGov(col, T); }
+    Object.assign(brake, savedBrake); S.idleAfter = 0;
+    performance.now = real;
+    return { aur, syn, straight, left, right, c0, c1, c2 };
+  });
+  p.ok(r.aur >= 20 && r.syn >= 40, 'aurora/synthwave never black: ' + [r.aur, r.syn].map(Math.round));
+  p.ok(r.left[0] > r.left[2] * 0.8 && r.left[1] < 50 && r.right[1] > 100 && r.right[0] < 40, 'carve: left magenta / right cyan ' + JSON.stringify([r.left, r.right].map(a => a.map(Math.round))));
+  p.ok(r.straight[2] > r.straight[1] && r.straight[1] < 10, 'carve straight = violet');
+  p.eq(r.c0.map(Math.round), [0, 200, 255], 'moving: effect untouched');
+  p.ok(r.c1[0] > r.c1[2] && Math.max(...r.c1) < 90, 'still: dim amber glow ' + JSON.stringify(r.c1.map(Math.round)));
+  p.ok(r.c2[2] > 150, 'moving again: effect is back');
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,

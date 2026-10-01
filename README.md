@@ -165,6 +165,11 @@ All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip d
 - Airtime (motion): while |acceleration| < 3.5 m/s2 for 120 ms+ it drains to a faint violet glow; landing (>14 m/s2) blasts orange-red and decays in ~0.35 s, the landing frame is sent urgent.
 - Tests are simulated-clock tests; the real behaviour on a ride is untested.
 
+### Stage 5 (build stage5): Aurora, Synthwave, Carve, Parked glow
+- Aurora and Synthwave are new Flow effects; Carve (Brake tab, motion) flushes magenta/cyan by turn side using the gyro turn rate about the gravity axis (there is a Left/Right swap in its settings because the sign depends on how the phone sits). Scenes added: Aurora cruise, Synthwave, Carve.
+- Parked glow (Idle Governor): Settings > Everyday > Parked glow (default Off). After the board is still (GPS speed under 1 m/s, else motion energy) for 5/15/60 s, colour effects fade to dim amber, then a faint heartbeat every 10 s after 2 minutes; moving snaps back. Music effects and built-ins are not touched. Needs GPS (brake light / Velocity on) or motion to know it is still; otherwise it never dims.
+- NOT built, on purpose: Tron Runner (needs a verified blue/cyan and orange running built-in; the strip's known running modes are only red/yellow/7-colour, so it would be guesswork on hardware) and glove gestures in Ride mode (needs on-board tuning). Both are candidates once you have tested what exists.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

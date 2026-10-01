@@ -345,6 +345,9 @@
       
       <div class="label" style="margin-top:12px">Display</div>
       <button class="small" id="btnNight" style="width:100%" onclick="toggleNight()">🌙 Night dimmer: Off</button>
+      <div class="label" style="margin-top:12px">Parked glow</div>
+      <div class="hint">When the board stops (GPS speed or motion), colour effects fade to a dim amber glow, then a faint heartbeat after 2 minutes. Moving again brings the effect straight back. Music effects are not changed.</div>
+      <select id="idleAfter" style="width:100%"><option value="0">Off</option><option value="5">After 5 s</option><option value="15">After 15 s</option><option value="60">After 1 min</option></select>
       <div class="row">
         <button class="small" onclick="disconnect()">Disconnect</button>
         <button class="small" onclick="clearFavourites()">Clear favourites</button>
@@ -494,7 +497,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 ride-aware1';
+const APP_BUILD = '2026-10-01 stage5';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -553,7 +556,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  idleAfter: load('idleAfter', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -1296,6 +1299,7 @@ async function startMotion2(quiet) {
     if (lin) brakeMotion(lin, performance.now());
     motion.energy = motion.energy * 0.92 + mag * 0.08;
     motion.jolt = mag;
+    const rr = e.rotationRate; if (rr && rr.alpha != null) motion.rot = [rr.alpha, rr.beta, rr.gamma].map(v => v * Math.PI / 180);
     if (g.x != null) { motion.acc = Math.hypot(g.x, g.y, g.z); motion.accAt = performance.now(); }
     if (g.x != null) motion.tiltHue = (Math.atan2(g.y, g.x) * 180 / Math.PI + 360) % 360;
     document.querySelector('#meter2 > div').style.width = Math.min(100, motion.energy * 12) + '%';
@@ -1575,6 +1579,25 @@ const EFFECTS = [
       let f = 0; for (const h of st.hits || []) { const x = (now - h.at) / 1000; if (x >= 0) f = Math.max(f, h.a * Math.exp(-x / h.tau)); }
       return mix(scale(b, 0.35 + 0.45 * nz(t / 4)), bo, Math.min(1, f));
     } },
+  // Aurora: slow green -> teal -> violet curtains with dark valleys and an occasional bright surge.
+  { id: 'aurora', group: 'flow', name: 'Aurora', desc: 'Green-to-violet curtains that swell and fade',
+    params: { speed: { label: 'Drift', min: 0.3, max: 3, step: 0.1, v: 1 }, hueLo: { label: 'Hue from', min: 100, max: 200, step: 5, v: 130 },
+      hueHi: { label: 'Hue to', min: 220, max: 320, step: 5, v: 290 }, surge: { label: 'Surges', min: 0, max: 1, step: 0.05, v: 0.5 } },
+    fn: (t, p) => {
+      t *= p.speed; const h = p.hueLo + (p.hueHi - p.hueLo) * smooth(nz(t / 9));
+      let v = 0.3 + 0.7 * Math.pow(nz(t / 3.5, 7), 1.4);
+      const sg = Math.max(0, Math.sin(t / 11)); v = Math.min(1, v + p.surge * 0.4 * sg * sg * sg);
+      return hsv(h, 1, v);
+    } },
+  // Synthwave: pink -> orange -> violet -> cyan, each held, with a soft dip like a scan line crossing the horizon.
+  { id: 'synth', group: 'flow', name: 'Synthwave', desc: 'Pink, orange, violet, cyan with a scan-line dip',
+    params: { hold: { label: 'Hold (s)', min: 3, max: 10, step: 0.5, v: 5 }, dip: { label: 'Dip depth', min: 0, max: 0.8, step: 0.05, v: 0.55 }, dipEvery: { label: 'Dip every (s)', min: 1.5, max: 4, step: 0.1, v: 2.4 } },
+    fn: (t, p) => {
+      const C = ['#ff1f8f', '#ff6a00', '#7a1cff', '#00e5ff'].map(hexToRgb), x = t / p.hold, i = Math.floor(x) % 4;
+      const c = mix(C[i], C[(i + 1) % 4], smooth(Math.min(1, (x % 1) / 0.3)));
+      const d = (t % p.dipEvery) / p.dipEvery, k = 1 - p.dip * Math.exp(-Math.pow((d - 0.5) / 0.06, 2));
+      return scale(c, k);
+    } },
   { id: 'ocean', group: 'flow', name: 'Ocean', desc: 'Rolling blue-green waves',
     params: {},
     fn: t => { const w = 0.5 + 0.5 * Math.sin(t * 0.9) * Math.sin(t * 0.37 + 1); return mix([0, 40, 180], [0, 200, 170], w); } },
@@ -1745,6 +1768,18 @@ const EFFECTS = [
       st.air = follow(st.air || 0, air ? 1 : 0, dt, 0.05, 0.08); st.hit = decay(st.hit || 0, dt, 0.35);
       return mix(mix(scale(hexToRgb(p.base), 0.7), [25, 0, 80], st.air), hexToRgb(p.blast), Math.min(1, st.hit));
     } },
+  // Carve: steady violet when straight; turning flushes magenta one way and cyan the other (turn rate about "up", whatever way the phone sits).
+  { id: 'carve', group: 'motion', name: 'Carve', desc: 'Colour flushes to the side you turn', needs: 'motion',
+    params: { dead: { label: 'Dead zone (rad/s)', min: 0.15, max: 0.6, step: 0.05, v: 0.3 }, gain: { label: 'Strength', min: 0.5, max: 2, step: 0.05, v: 1 },
+      swap: { type: 'select', label: 'Left / right', v: 0, options: [[0, 'Normal'], [1, 'Swapped']] } },
+    fn: (t, p, st) => {
+      const dt = frameDt(st), g = motion.grav || [0, 0, 1], gn = Math.hypot(g[0], g[1], g[2]) || 1, r = motion.rot || [0, 0, 0];
+      let yaw = (r[0] * g[0] + r[1] * g[1] + r[2] * g[2]) / gn;
+      if (+p.swap) yaw = -yaw;
+      yaw = Math.abs(yaw) < p.dead ? 0 : yaw * p.gain;
+      st.y = follow(st.y || 0, yaw, dt, 0.06, 0.3); const a = Math.min(1, Math.abs(st.y) / 1.2);
+      return scale(mix([110, 0, 200], st.y > 0 ? [255, 0, 170] : [0, 200, 255], a), 0.45 + 0.55 * a);
+    } },
   { id: 'jolt', group: 'motion', name: 'Jolt flash', desc: 'Flash on bumps, landings and stops', needs: 'motion',
     params: { color: { type: 'color', v: '#ff0000' }, base: { type: 'color', v: '#22d3ee' }, thresh: { label: 'Threshold', min: 2, max: 25, step: 0.5, v: 8 } },
     fn: (t, p, st) => { if (motion.jolt > p.thresh) st.k = 1; st.k = (st.k || 0) * 0.88; return mix(scale(hexToRgb(p.base), 0.6), hexToRgb(p.color), st.k); } },
@@ -1794,6 +1829,23 @@ function nextFrameTime(t) {
   const period = 60000 / S.bpm, sub = period / Math.max(1, Math.floor(period / (1000 / effFps())));
   return tempo.t0 + (Math.floor((t - tempo.t0) / sub + 1e-6) + 1) * sub;
 }
+// Idle governor: after the board has been still for a while, phone-driven effects fade to a dim amber "parked" glow (and a faint heartbeat after a long stop).
+const idle = { stopAt: 0, k: 0, last: 0 };
+function moving() {
+  const now = performance.now();
+  if (brake.on && brake.speed != null && now - brake.fixAt < 5000) return brake.speed > 1;
+  if (motion.on) return motion.energy > 0.35;
+  return true; // no way to tell: never dim
+}
+function idleGov(rgb, now) {
+  const dt = Math.min(0.2, (now - (idle.last || now)) / 1000); idle.last = now;
+  if (moving()) idle.stopAt = now; else if (!idle.stopAt) idle.stopAt = now;
+  const still = (now - idle.stopAt) / 1000;
+  idle.k = follow(idle.k, still > S.idleAfter ? 1 : 0, dt, 1.0, 0.12); // slow fade into idle, quick snap back
+  if (idle.k < 0.003) return rgb;
+  const beat = Math.exp(-Math.pow((((now / 1000) % 10) - 0.2) / 0.12, 2));
+  return mix(rgb, scale([255, 110, 0], still > 120 ? 0.06 + 0.14 * beat : 0.22 * (0.75 + 0.25 * Math.sin(now / 800))), idle.k);
+}
 function tick(now = performance.now()) {
   tVirtual += (now - lastTick) / 1000 * S.speed;
   lastTick = now;
@@ -1803,7 +1855,7 @@ function tick(now = performance.now()) {
   if (e.needs === 'audio') { updateAudio(now); if (audio.beat) urgent = true; }
   try {
     if (e.drive) e.drive(tVirtual, S.current.params, scratch);
-    else sendColor(e.fn(tVirtual, S.current.params, scratch));
+    else { const c = e.fn(tVirtual, S.current.params, scratch); sendColor(S.idleAfter > 0 && e.needs !== 'audio' ? idleGov(c, now) : c); }
   } catch (err) { console.warn(err); }
   if (!cmdQueue.length && !pendingColor && !slot.bright && !slot.speed) urgent = false; // nothing to send this frame: don't let it leak to a later one
 }
@@ -2210,6 +2262,9 @@ const SCENE_DEFS = [
   { n: 'Storm', fx: 'storm', bright: 100 },
   { n: 'Velocity', fx: 'velocity', bright: 90 },
   { n: 'Airtime', fx: 'airtime', bright: 100 },
+  { n: 'Aurora cruise', fx: 'aurora', bright: 70 },
+  { n: 'Synthwave', fx: 'synth', bright: 90 },
+  { n: 'Carve', fx: 'carve', bright: 90 },
   { n: 'Police', fx: 'police', bright: 100 },
   { n: 'Parked glow', fx: 'breathe', bright: 25, brake: 0 },
 ];
@@ -2293,6 +2348,8 @@ document.getElementById('brightRide').value = Math.round(S.bright * 100);
 document.getElementById('brightRide').addEventListener('input', e => { const t = document.getElementById('bright'); t.value = e.target.value; t.dispatchEvent(new Event('input')); });
 document.querySelectorAll('input[type=range]').forEach(i => { if (!i.getAttribute('aria-label')) { const l = i.closest('.slider') && i.closest('.slider').querySelector('label'); i.setAttribute('aria-label', (l && l.textContent) || 'slider'); } });
 renderNight(); renderBrakeBtns(); renderScenes();
+document.getElementById('idleAfter').value = String(S.idleAfter);
+document.getElementById('idleAfter').addEventListener('change', e => { S.idleAfter = +e.target.value; store('idleAfter', S.idleAfter); idle.k = 0; idle.stopAt = 0; });
 if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
 selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;
