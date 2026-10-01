@@ -175,6 +175,11 @@ All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip d
 - Parked glow: style (breathing/flashing/heartbeat/steady), colour, brightness, cycle, Start after (3 s-1 min), optional Dimmer after. Choosing an effect counts as activity, so a new effect shows for the Start-after time. Live Sees: line in Settings shows what it thinks (GPS km/h or motion).
 - REAL BUG found in a phone log: Bluefy gives GPS speed as null, and  is TRUE in JavaScript, so the position-based fallback never ran. Brake light only worked when iOS happened to supply a speed (moving fast enough), and Velocity stayed one colour. Fixed: null counts as missing, the fallback is seeded from the first fix, and movement inside the GPS noise reads as standing still. Every fix is logged ('GPS fix' lines, 5 s throttle).
 
+### Test round 2 (builds stage5e-5f)
+- Brake light fired about a minute after sitting down. Cause: GPS speed worked out step by step from jittery positions (10 m accuracy looked like running), and an old reading stayed valid after the fixes stopped. Now: speed = net movement over 2.5-6 s (movement inside the GPS noise reads as standing still), and after 6 s without a fix the speed is unknown (no braking off an old reading).
+- Scene overwrite is now harder to trigger by accident: hold 1.2 s and confirm. Settings has Reset scenes. (A user saw Storm turn into Synthwave: most likely a long tap overwrote the tile; tab switching itself was checked and keeps the right effect.)
+- Known flake: the test brake over Living flame occasionally fails in the full run under load and passes alone.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

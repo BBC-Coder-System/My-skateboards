@@ -684,7 +684,7 @@ test('scenes: tap applies effect + brightness + brake; hold-overwrite persists; 
   await p.ev(() => applyScene(sceneList().findIndex(s => s.n === 'Night Ride')));
   const r = await p.ev(() => ({ id: S.current && S.current.id, b: Math.round(S.bright * 100), brake: S.brakeOn, scene: S.scene }));
   p.eq(r, { id: 'ocean', b: 85, brake: true, scene: 'Night Ride' }, 'Night Ride applied');
-  await p.ev(() => { runEffect('rainbow'); overwriteScene(0); });
+  await p.ev(() => { window.confirm = () => true; runEffect('rainbow'); overwriteScene(0); });
   p.eq(await p.ev(() => [sceneList()[0].mine, sceneList()[0].cur.id, JSON.parse(localStorage.getItem('sceneOv'))['Night Ride'].cur.id]), [true, 'rainbow', 'rainbow'], 'overwritten and saved');
   p.eq(await p.ev(() => { SCENE_DEFS.push({ n: 'Ghost', fx: 'nope', bright: 50 }); const ok = !sceneList().some(s => s.n === 'Ghost'); SCENE_DEFS.pop(); return ok; }), true, 'unknown effects skipped');
 });
@@ -749,22 +749,24 @@ test('Aurora/Synthwave never black; Carve flushes by turn side; idle governor di
   p.ok(r.c1[0] > r.c1[2] && Math.max(...r.c1) < 90, 'still: dim amber glow ' + JSON.stringify(r.c1.map(Math.round)));
   p.ok(r.c2[2] > 150, 'moving again: effect is back');
 });
-test('GPS without a speed value: speed is worked out from position (first fix seeds it); standing still reads 0; Storm sky stays blue', async p => {
+test('GPS without a speed value: speed comes from net movement over 2.5-6 s; jitter reads 0; stale GPS is unknown; Storm sky stays blue', async p => {
   const r = await p.ev(() => {
     const real = performance.now.bind(performance); let T = 500000; performance.now = () => T;
-    brake.on = true; brake.lastPos = null; brake.hist = []; brake.speed = null;
-    const fix = (lat, lon, tsec) => onFix({ timestamp: 1e12 + tsec * 1000, coords: { speed: null, latitude: lat, longitude: lon, accuracy: 8 } });
-    fix(13.0, 100.0, 0); const afterFirst = brake.speed;
-    fix(13.0, 100.00001, 1); const still = brake.speed;               // about 1 m: noise
-    fix(13.0, 100.00011, 2); const moved = brake.speed;               // about 10.8 m in 1 s
-    // storm sky colour at a quiet moment
+    brake.on = true; brake.pos = []; brake.hist = []; brake.speed = null;
+    const fix = (lon, tsec) => onFix({ timestamp: 1e12 + tsec * 1000, coords: { speed: null, latitude: 13.0, longitude: lon, accuracy: 10 } });
+    fix(100.0, 0); const first = brake.speed;
+    fix(100.00006, 1); const early = brake.speed;                    // only 1 s of history: unknown
+    fix(100.00002, 3); const still = brake.speed;                    // wandering +-6 m inside the noise
+    fix(100.0004, 4); const moved = brake.speed;                     // ~43 m in 4 s
+    T += 7000; brake.active = false; brakeTick(); const stale = brake.speed;   // no fix for 7 s
     const e = byId.storm, pr = paramsFor(e), st = { next: T + 1e9 }; let c; for (let i = 0; i < 60; i++) { T += 33; c = e.fn(i / 30, pr, st); }
-    performance.now = real; brake.on = false; brake.speed = null; brake.lastPos = null; brake.hist = [];
-    return { afterFirst, still, moved, c };
+    performance.now = real; brake.on = false; brake.speed = null; brake.pos = []; brake.hist = [];
+    return { first, early, still, moved, stale, c };
   });
-  p.eq(r.afterFirst, null, 'first fix alone gives no speed');
-  p.eq(r.still, 0, 'jitter inside the GPS noise reads as standing still');
-  p.ok(r.moved > 8 && r.moved < 13, 'moving ~10.8 m in 1 s gives ~' + (r.moved || 0).toFixed(1) + ' m/s');
+  p.eq([r.first, r.early], [null, null], 'no speed until there are 2.5 s of history');
+  p.eq(r.still, 0, 'wandering inside the GPS noise reads as standing still');
+  p.ok(r.moved > 8 && r.moved < 13, 'moving ~43 m in 4 s gives ~' + (r.moved || 0).toFixed(1) + ' m/s');
+  p.eq(r.stale, null, 'no fix for 7 s: speed becomes unknown');
   p.ok(r.c[2] > r.c[0] * 2.5 && r.c[2] >= 20, 'storm sky is blue-violet, not red: ' + JSON.stringify(r.c.map(Math.round)));
 });
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG

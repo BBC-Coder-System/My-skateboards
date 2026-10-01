@@ -169,7 +169,7 @@
     </div>
     <div class="label">Scenes</div>
     <div class="ridegrid" id="rideScenes"></div>
-    <div class="hint">One tap sets effect, brightness and brake light. Hold a scene to overwrite it with what is playing now.</div>
+    <div class="hint">One tap sets effect, brightness and brake light. Hold a scene for 1 s to replace it with what is playing now (you will be asked first).</div>
     <div class="label" style="margin-top:14px">Favourites</div>
     <div class="ridegrid" id="rideFavs"></div>
     <div class="hint">Tap ☆ on any effect to put it here.</div>
@@ -357,6 +357,7 @@
       <div class="row">
         <button class="small" onclick="disconnect()">Disconnect</button>
         <button class="small" onclick="clearFavourites()">Clear favourites</button>
+        <button class="small" onclick="resetScenes()">Reset scenes</button>
       </div>
     </div>
   </details>
@@ -503,7 +504,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 stage5d';
+const APP_BUILD = '2026-10-01 stage5f';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1336,7 +1337,7 @@ async function startBrake() {
   brake.watch = navigator.geolocation.watchPosition(onFix,
     err => { dlog('GPS error', err.message, 5000); brakeStatus('GPS: ' + err.message + '. Allow location for Bluefy in iPhone Settings.', true); },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
-  brake.on = true; brake.hist = []; brake.speed = null; brake.lastPos = null;
+  brake.on = true; brake.hist = []; brake.speed = null; brake.pos = [];
   if (!brake.timer) brake.timer = setInterval(brakeTick, 50);
   if (S.brakeFast) startMotion(true); // needs a tap for its permission; retried on the next tap
   renderBrakeBtns();
@@ -1376,13 +1377,13 @@ function onFix(pos) {
   let v = c.speed;
   if (typeof v !== 'number' || !(v >= 0)) { // null (note: null >= 0 is true in JS) / NaN / -1: Bluefy often gives none: work the speed out from how far we moved since the previous fix
     v = null;
-    const lp = brake.lastPos;
-    if (lp && c.accuracy <= 40) {
-      const dt = (t - lp.t) / 1000;
-      if (dt > 0.3 && dt < 6) { const d = haversine({ lat: lp.latitude, lon: lp.longitude }, c); v = d < Math.max(6, c.accuracy * 0.6) ? 0 : d / dt; } // inside the GPS noise: not moving
+    const ps = brake.pos = (brake.pos || []).filter(q => t - q.t < 6000);
+    if (c.accuracy <= 40) {
+      const ref = ps.find(q => t - q.t >= 2500);                     // the oldest recent fix that is at least 2.5 s back
+      if (ref) { const dt = (t - ref.t) / 1000, d = haversine({ lat: ref.latitude, lon: ref.longitude }, c); v = d < Math.max(6, 0.8 * Math.max(c.accuracy, ref.accuracy)) ? 0 : d / dt; } // inside the GPS noise: not moving
+      ps.push({ t, latitude: c.latitude, longitude: c.longitude, accuracy: c.accuracy });
     }
-  }
-  brake.lastPos = { t, latitude: c.latitude, longitude: c.longitude };
+  } else brake.pos = [];
   brake.fixAt = now;
   dstats.gps = (dstats.gps || 0) + 1;
   dlog('GPS fix', 'speed ' + (c.speed == null ? 'null' : c.speed.toFixed(2)) + ' m/s -> used ' + (v == null ? 'none' : v.toFixed(2)) + ' · accuracy ' + Math.round(c.accuracy) + ' m · fixes so far ' + dstats.gps, 5000);
@@ -1454,6 +1455,7 @@ function brakeEnd() {
 }
 function brakeTick() {
   const now = performance.now();
+  if (brake.speed != null && now - brake.fixAt > 6000 && !brake.active) { brake.speed = null; brake.hist = []; brake.pos = []; } // unknown, so it cannot brake off an old reading
   if (now - brake.uiAt > 500) { brake.uiAt = now; brakeUi(); }
   if (!brake.active) return;
   const stopped = brake.speed != null && brake.speed < 0.7 ? brake.stoppedAt + 4000 : 0; // hold 4 s after coming to a stop
@@ -2336,17 +2338,19 @@ function applyScene(i) {
 function overwriteScene(i) {
   const sc = sceneList()[i]; if (!sc) return;
   if (!S.current || S.current.kind === 'stripmic') { toast('Play an effect or colour first'); return; }
+  if (!confirm('Replace the scene "' + sc.n + '" with what is playing now?' + (sc.mine ? ' (Cancel keeps it as it is.)' : ''))) return;
   sceneOv[sc.n] = { cur: JSON.parse(JSON.stringify(S.current)), bright: Math.round(S.bright * 100), speed: S.speed, lock: S.lockMode, brake: S.brakeOn ? 1 : 0 };
   try { localStorage.setItem('sceneOv', JSON.stringify(sceneOv)); } catch (e) {}
   renderScenes(); toast('Saved over "' + sc.n + '"');
 }
+function resetScenes() { if (!confirm('Put every scene back to its original setup?')) return; sceneOv = {}; try { localStorage.removeItem('sceneOv'); } catch (e) {} S.scene = null; renderScenes(); toast('Scenes reset'); }
 function renderScenes() {
   const box = document.getElementById('rideScenes'); if (!box) return;
   box.innerHTML = sceneList().map((sc, i) => `<button class="rtile${S.scene === sc.n ? ' active' : ''}" data-scene="${i}">${sc.n.replace(/</g, '&lt;')}${sc.mine ? ' ✎' : ''}</button>`).join('');
 }
 (function () {
   const box = document.getElementById('rideScenes'); let timer = null, held = false;
-  box.addEventListener('pointerdown', ev => { const b = ev.target.closest('[data-scene]'); if (!b) return; held = false; timer = setTimeout(() => { held = true; overwriteScene(+b.dataset.scene); }, 700); });
+  box.addEventListener('pointerdown', ev => { const b = ev.target.closest('[data-scene]'); if (!b) return; held = false; timer = setTimeout(() => { held = true; overwriteScene(+b.dataset.scene); }, 1200); });
   const stop = () => clearTimeout(timer);
   box.addEventListener('pointerup', stop); box.addEventListener('pointerleave', stop); box.addEventListener('pointercancel', stop);
   box.addEventListener('contextmenu', ev => ev.preventDefault());
