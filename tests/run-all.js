@@ -688,6 +688,20 @@ test('scenes: tap applies effect + brightness + brake; hold-overwrite persists; 
   p.eq(await p.ev(() => [sceneList()[0].mine, sceneList()[0].cur.id, JSON.parse(localStorage.getItem('sceneOv'))['Night Ride'].cur.id]), [true, 'rainbow', 'rainbow'], 'overwritten and saved');
   p.eq(await p.ev(() => { SCENE_DEFS.push({ n: 'Ghost', fx: 'nope', bright: 50 }); const ok = !sceneList().some(s => s.n === 'Ghost'); SCENE_DEFS.pop(); return ok; }), true, 'unknown effects skipped');
 });
+test('Neon Tube stutters then settles; Storm flashes blue-violet and decays (simulated clock)', async p => {
+  const r = await p.ev(() => {
+    const real = performance.now.bind(performance); let T = 100000; performance.now = () => T;
+    const run = (id, secs) => { const e = byId[id], pr = paramsFor(e), st = {}, out = []; for (let i = 0; i < secs * 30; i++) { T += 33; out.push(e.fn(i / 30, pr, st)); } return out; };
+    const neon = run('neon', 30).map(c => Math.max(...c)), storm = run('storm', 40);
+    performance.now = real;
+    const sm = storm.map(c => c[2]);
+    return { nMax: Math.max(...neon), nMin: Math.min(...neon), dips: neon.filter(v => v < 0.35 * Math.max(...neon)).length, sMax: Math.max(...sm), sMin: Math.min(...sm), sBolt: storm.some(c => c[2] > 200 && c[0] < 200) };
+  });
+  p.ok(r.nMax > 200 && r.nMin > 5, 'neon never goes black: ' + JSON.stringify([r.nMax, r.nMin]));
+  p.ok(r.dips >= 3, 'neon has dark stutter frames: ' + r.dips);
+  p.ok(r.sMax > 150 && r.sMin > 5, 'storm bolts bright, sky never black: ' + JSON.stringify([r.sMax, r.sMin]));
+  p.ok(r.sBolt, 'storm bolt is blue-violet, not white');
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,

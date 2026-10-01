@@ -494,7 +494,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 scenes1';
+const APP_BUILD = '2026-10-01 styles1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1458,6 +1458,8 @@ function testBrake() {
 // 2-3 visible steps at ~20 frames/s and wobbles with every late frame. These follow a target with a time
 // constant (fast attack, slower release) measured in real seconds, so every flash and fade has the same
 // smooth shape however the frames are spaced.
+// value noise 0..1 (smooth wander for hum / clouds)
+const nz = (x, sd = 0) => { const i = Math.floor(x), f = smooth(x - i), h = k => { const v = Math.sin((k + sd) * 127.1) * 43758.5453; return v - Math.floor(v); }; return h(i) + (h(i + 1) - h(i)) * f; };
 function frameDt(st) { const now = performance.now(), dt = Math.min(0.2, (now - (st._t || now)) / 1000); st._t = now; return dt; }
 function follow(cur, target, dt, atk, rel) { return cur + (target - cur) * (1 - Math.exp(-dt / (target > cur ? atk : rel))); }
 const decay = (v, dt, tau) => v * Math.exp(-dt / tau);
@@ -1535,6 +1537,42 @@ const EFFECTS = [
         return;
       }
       fireLife(t, p, st, st.base === 208 ? [255, 190, 0] : [255, 40, 0]);
+    } },
+  // Neon Tube: a lit sign with a faint hum; every few seconds the tube "catches" (stutters off and on) and settles.
+  { id: 'neon', group: 'flow', name: 'Neon Tube', desc: 'Glowing sign that stutters now and then',
+    params: { color: { type: 'color', v: '#ff2bd6' }, every: { label: 'Stutter every (s)', min: 4, max: 20, step: 1, v: 9 },
+      stutters: { label: 'Stutters', min: 2, max: 6, step: 1, v: 4 }, dim: { label: 'Dark between', min: 0.08, max: 0.4, step: 0.02, v: 0.15 } },
+    fn: (t, p, st) => {
+      const now = performance.now(), c = hexToRgb(p.color), minMs = Math.max(80, 1600 / effFps());
+      if (!st.seq && now > (st.next || now + 2500)) {
+        st.seq = []; const n = p.stutters + Math.floor(Math.random() * 2);
+        for (let i = 0; i < n; i++) st.seq.push(minMs + Math.random() * 90, minMs + Math.random() * 120); // off, on, off, on ...
+        st.t0 = now;
+      }
+      if (st.next === undefined) st.next = now + 2500;
+      let k = 1, ember = 0;
+      if (st.seq) {
+        let e = now - st.t0, on = false, i = 0;
+        for (; i < st.seq.length; i++) { if (e < st.seq[i]) break; e -= st.seq[i]; on = !on; }
+        if (i >= st.seq.length) { st.seq = null; st.next = now + (p.every * 0.6 + Math.random() * p.every * 0.8) * 1000; }
+        else { k = on ? 0.85 : p.dim; ember = on ? 0 : 0.4; }
+      }
+      return scale(mix(c, [255, 60, 20], ember), k * (0.93 + 0.07 * nz(t * 5)));
+    } },
+  // Storm: a violet sky glow that swells slowly, with lightning in electric blue-violet (never white).
+  { id: 'storm', group: 'flow', name: 'Storm', desc: 'Violet sky with lightning cracks',
+    params: { base: { type: 'color', v: '#3a0090' }, bolt: { type: 'color', v: '#6070ff' }, gap: { label: 'Strike every (s)', min: 3, max: 15, step: 1, v: 7 },
+      intensity: { label: 'Brightness of bolts', min: 0.5, max: 1, step: 0.05, v: 0.9 } },
+    fn: (t, p, st) => {
+      const now = performance.now(), b = hexToRgb(p.base), bo = hexToRgb(p.bolt), minTau = Math.max(0.08, 1.2 / effFps());
+      if (st.next === undefined) st.next = now + 2500;
+      if (now > st.next) {
+        const n = 2 + Math.floor(Math.random() * 3); st.hits = []; let at = now;
+        for (let i = 0; i < n; i++) { const last = i === n - 1; st.hits.push({ at, a: (last ? 1 : 0.4 + Math.random() * 0.4) * p.intensity, tau: last ? Math.max(0.22, minTau) : minTau }); at += 90 + Math.random() * 130; }
+        st.next = now + (p.gap * 0.5 + Math.random() * p.gap) * 1000;
+      }
+      let f = 0; for (const h of st.hits || []) { const x = (now - h.at) / 1000; if (x >= 0) f = Math.max(f, h.a * Math.exp(-x / h.tau)); }
+      return mix(scale(b, 0.35 + 0.45 * nz(t / 4)), bo, Math.min(1, f));
     } },
   { id: 'ocean', group: 'flow', name: 'Ocean', desc: 'Rolling blue-green waves',
     params: {},
@@ -2136,6 +2174,8 @@ const SCENE_DEFS = [
   { n: 'Blaze', fx: 'fire3', bright: 100 },
   { n: 'Party', fx: 'mparty', bright: 100 },
   { n: 'Sunset cruise', fx: 'sunset', bright: 70, brake: 1 },
+  { n: 'Neon Alley', fx: 'neon', bright: 90 },
+  { n: 'Storm', fx: 'storm', bright: 100 },
   { n: 'Police', fx: 'police', bright: 100 },
   { n: 'Parked glow', fx: 'breathe', bright: 25, brake: 0 },
 ];

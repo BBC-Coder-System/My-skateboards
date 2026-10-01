@@ -154,6 +154,12 @@ All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip d
 - Effect settings are a bottom sheet with a collapse button. Music tab: tuning controls folded away. Connection banner + dimmed controls when offline. Night dimmer veil. Pinch zoom allowed, 44 px minimum tap targets, aria labels.
 - Test status: 63 tests/375 assertions pass; layout checked by screenshots at 390x844 (no horizontal overflow).
 
+### Stage 2 (build scenes1): Scenes
+- Ride tab has a Scenes grid (Night Ride, Blaze, Party, Sunset cruise, Neon Alley, Storm, Police, Parked glow). A scene sets effect + brightness (+ brake light). Hold a tile 0.7 s to overwrite it with what is playing now (stored in localStorage sceneOv, marked with a pencil). Scenes whose effect does not exist are skipped, so new styles just add entries to SCENE_DEFS.
+
+### Stage 3 (build styles1): Neon Tube + Storm (Flow tab)
+- Neon Tube: glowing sign with a faint hum, random stutter bursts every few seconds (minimum stutter length scales with the update rate so it stays visible). Storm: slowly swelling violet sky, 2-4 lightning hits per strike in blue-violet (never white), last hit the biggest.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):
