@@ -398,7 +398,7 @@
       <div class="label" style="margin-top:12px">Music update rate</div>
       <div class="slider"><label>Frames/s</label><input type="range" id="musicFps" min="15" max="60" step="5" value="30"><span class="val" id="musicFpsVal">30/s</span></div>
       <div class="hint">How many colour updates per second music effects send. The official app sends its music colours far faster than normal ones, so higher usually lands beats better and looks smoother. If the strip lags or drops, lower it (the app lowers it by itself after repeated write timeouts).</div>
-      <div class="slider"><label>All effects</label><select id="fastColourAll" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="0">Fast colours for music only (default)</option><option value="1">Fast colours for every effect (experimental)</option></select></div>
+      <div class="slider"><label>All effects</label><select id="fastColourAll" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"><option value="s">Music and slow colour effects (default: smoother fades)</option><option value="0">Music only (the old behaviour)</option><option value="1">Every effect, even flashes (experimental)</option></select></div>
 
       
     </div>
@@ -504,7 +504,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 stage5f';
+const APP_BUILD = '2026-10-01 smooth1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -563,7 +563,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -650,6 +650,15 @@ function sendCmd(hex) {
 // sees almost no load and cuts out. So "black" is sent as a faint glow of the last lit colour.
 const DARK_FLOOR = 4; // 0-255, barely visible under the board
 let lastLit = [255, 255, 255];
+// Which effects get fast colour packets (the strip treats the 0x20 marker as 'music': it blends them in ~10 ms instead of ~100 ms) and the higher update rate.
+function fastColour(cur) {
+  if (!cur) return false;
+  if (cur.needs === 'audio') return true;
+  if (cur.drive || cur.start) return false;
+  if (S.fastColourAll) return true;
+  return !!S.smoothFx && (cur.group === 'flow' || cur.group === 'motion');
+}
+let dither = [0, 0, 0];
 function colorHex(rgb) {
   const b = S.bright * S.bright; // perceptual curve: slider halfway looks about half as bright
   let out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
@@ -659,7 +668,10 @@ function colorHex(rgb) {
   else { const lm = Math.max(...lastLit) || 1; out = lastLit.map(v => Math.max(0, (v / lm) * DARK_FLOOR)); } // only true black
   document.getElementById('preview').style.background = `rgb(${out.map(Math.round).join(',')})`;
   const cur = S.current && S.current.kind === 'effect' ? byId[S.current.id] : null;
-  const music = !!cur && (cur.needs === 'audio' || (S.fastColourAll && !cur.drive && !cur.start));
+  const music = fastColour(cur);
+  if (music && S.musicFlag === 0x20 && cur.needs !== 'audio') { // slow fades: error-diffusion dithering gives ~10-bit smoothness from 8-bit channels (matters most at low brightness)
+    out = out.map((v, i) => { const w = v + dither[i], r = Math.max(0, Math.min(255, Math.round(w))); dither[i] = Math.max(-1, Math.min(1, w - r)); return r; });
+  } else dither = [0, 0, 0];
   return CMD.color(...out, music ? S.musicFlag : 0x10);
 }
 function sendColor(rgb) { pendingColor = colorHex(rgb); pump(); }
@@ -784,7 +796,7 @@ const maxRate = frac => S.fps * frac / 2 / S.speed;
 function effFps() {
   const cur = S.current && S.current.kind === 'effect' ? byId[S.current.id] : null;
   if (!cur) return S.fps;
-  const fast = (cur.needs === 'audio' || (S.fastColourAll && !cur.drive && !cur.start)) && S.musicFlag === 0x20;
+  const fast = fastColour(cur) && S.musicFlag === 0x20;
   if (cur.needs === 'audio' && S.musicFlag !== 0x20) return Math.min(S.fps, 12);
   return fast ? S.musicFps : S.fps;
 }
@@ -2235,8 +2247,8 @@ bindSlider('slowGap', v => { S.slowGap = v; store('slowGap', v); }, v => v + ' m
 document.getElementById('slowGap').value = S.slowGap; document.getElementById('slowGapVal').textContent = S.slowGap + ' ms';
 bindSlider('musicFps', v => { S.musicFps = v; store('musicFps', v); if (timer) startEngine(); }, v => v + '/s');
 syncMusicFpsUi();
-document.getElementById('fastColourAll').value = S.fastColourAll ? '1' : '0';
-document.getElementById('fastColourAll').addEventListener('change', e => { S.fastColourAll = e.target.value === '1'; store('fastColourAll', S.fastColourAll); dlog('fast colours for all effects', S.fastColourAll ? 'on' : 'off'); if (timer) startEngine(); });
+document.getElementById('fastColourAll').value = S.fastColourAll ? '1' : S.smoothFx ? 's' : '0';
+document.getElementById('fastColourAll').addEventListener('change', e => { const v = e.target.value; S.fastColourAll = v === '1'; S.smoothFx = v === 's'; store('fastColourAll', S.fastColourAll); store('smoothFx', S.smoothFx); dlog('fast colours', v === '1' ? 'every effect' : v === 's' ? 'music + slow colour effects' : 'music only'); lastColorHex = ''; if (timer) startEngine(); });
 bindSlider('micGain', v => { S.micGainDb = v; store('micGainDb', v); if (audio.micGain) audio.micGain.gain.value = Math.pow(10, v / 20); }, v => v + ' dB');
 document.getElementById('micGain').value = S.micGainDb; document.getElementById('micGainVal').textContent = S.micGainDb + ' dB';
 bindSlider('syncDelay', v => { S.syncDelay = v; store('syncDelay', v); }, v => v + 'ms');

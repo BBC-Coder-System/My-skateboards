@@ -180,6 +180,10 @@ All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip d
 - Scene overwrite is now harder to trigger by accident: hold 1.2 s and confirm. Settings has Reset scenes. (A user saw Storm turn into Synthwave: most likely a long tap overwrote the tile; tab switching itself was checked and keeps the right effect.)
 - Known flake: the test brake over Living flame occasionally fails in the full run under load and passes alone.
 
+### Smooth fades (build smooth1)
+- Why slow fades looked rougher than the official B-P Gradual: the official effect runs INSIDE the strip (its own fast, fine blending), while a phone effect is a stream of 8-bit colour packets over Bluetooth: normal packets (marker 0x10, about 100 ms blending) at 13-15/s, with Bluetooth timing jitter, and at low brightness one 8-bit step is a big jump (4 -> 5 is +25 percent).
+- Now by default flow and motion colour effects use the fast marker (0x20, the one music uses, blended in ~10 ms) at the music rate (30/s) with error-diffusion dithering on the colour, which gives about 10-bit smoothness. Flashes, built-in-driven effects (Fire 2/3, Living flame) and solid colours are unchanged. Settings > Fix problems > Music speed > All effects switches back (Music only) or goes further (Every effect). It cannot fully match the official built-ins (they never touch Bluetooth while running, and survive the phone locking); for the very smoothest fades use the Strip tab gradual effects.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

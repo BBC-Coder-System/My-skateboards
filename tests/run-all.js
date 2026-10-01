@@ -307,7 +307,7 @@ test('colour writes respect the update-rate pacing', async p => {
 // ============================================================ 4. MUSIC MARKER / RATES
 test('normal effects use marker 0x10 at ~15/s; music effects 0x20 at up to 30/s', async p => {
   await p.connect(); await p.clr();
-  await p.ev(() => runEffect('rainbow')); await p.sleep(1500);
+  await p.ev(() => { S.smoothFx = false; runEffect('rainbow'); }); await p.sleep(1500);   // old behaviour: music-only fast colours
   let c = await p.colours();
   p.ok(c.length > 0 && c.every(x => x.flag === '10'), 'rainbow packets all end 10ef', c.slice(0, 3));
   p.near(c.length / 1.5, 8, 16.5, 'rainbow packets/s (S.fps = 15)');
@@ -317,12 +317,21 @@ test('normal effects use marker 0x10 at ~15/s; music effects 0x20 at up to 30/s'
   p.ok(c.length > 0 && c.every(x => x.flag === '20'), 'music colour packets all end 20ef', c.slice(0, 3));
   p.near(c.length / 1.5, 14, 34, 'Volume pulse packets/s');
 });
+test('smooth fades (default): slow colour effects use 0x20 at 30/s with dithering; flashes and built-in-driven effects stay normal', async p => {
+  p.eq(await p.ev(() => { S.current = { kind: 'effect', id: 'rainbow' }; const a = effFps(); S.current = { kind: 'effect', id: 'strobe' }; const b = effFps(); S.current = { kind: 'effect', id: 'fire2' }; const c = effFps(); return [a, b, c]; }), [30, 15, 15], 'rainbow 30/s, strobe 15/s, Living flame 15/s');
+  await p.connect(); await p.clr();
+  await p.ev(() => { S.bright = 0.2; runEffect('breathe'); }); await p.sleep(2500);
+  const c = await p.colours();
+  p.ok(c.length > 40 && c.every(x => x.flag === '20'), 'breathe sends fast-marker packets: ' + c.length);
+  const lv = new Set(c.map(x => x.rgb)); p.ok(lv.size > 8, 'many distinct levels (dithered fade): ' + lv.size);
+  p.ok(c.every(x => parseInt(x.rgb.slice(0, 2), 16) + parseInt(x.rgb.slice(2, 4), 16) + parseInt(x.rgb.slice(4, 6), 16) > 0), 'never black');
+});
 test('effFps: music marker off caps music at 12/s; fast-colours-for-all applies only to plain colour effects', async p => {
   const r = await p.ev(() => {
     const o = {};
     S.current = { kind: 'effect', id: 'mpulse' }; o.music = effFps();
     S.musicFlag = 0x10; o.noFlag = effFps(); S.musicFlag = 0x20;
-    S.current = { kind: 'effect', id: 'rainbow' }; o.rainbow = effFps();
+    S.smoothFx = false; S.current = { kind: 'effect', id: 'rainbow' }; o.rainbow = effFps();
     S.fastColourAll = true; o.rainbowFast = effFps();
     S.current = { kind: 'effect', id: 'fire2' }; o.fire2Fast = effFps();
     S.current = { kind: 'solid', id: '#fff' }; o.solid = effFps();
