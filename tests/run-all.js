@@ -677,6 +677,17 @@ test('every effect runs without errors, emits only valid packets, no black, no b
   p.ok(ids.length >= 20, 'effect table has >= 20 effects', ids.length);
 }, { allowWarn: false });
 
+// ============================================================ 10b. SCENES / RIDE SCREEN
+test('scenes: tap applies effect + brightness + brake; hold-overwrite persists; missing effects skipped', async p => {
+  const n = await p.ev(() => document.querySelectorAll('#rideScenes [data-scene]').length);
+  p.ok(n >= 5, 'scene tiles rendered: ' + n);
+  await p.ev(() => applyScene(sceneList().findIndex(s => s.n === 'Night Ride')));
+  const r = await p.ev(() => ({ id: S.current && S.current.id, b: Math.round(S.bright * 100), brake: S.brakeOn, scene: S.scene }));
+  p.eq(r, { id: 'ocean', b: 85, brake: true, scene: 'Night Ride' }, 'Night Ride applied');
+  await p.ev(() => { runEffect('rainbow'); overwriteScene(0); });
+  p.eq(await p.ev(() => [sceneList()[0].mine, sceneList()[0].cur.id, JSON.parse(localStorage.getItem('sceneOv'))['Night Ride'].cur.id]), [true, 'rainbow', 'rainbow'], 'overwritten and saved');
+  p.eq(await p.ev(() => { SCENE_DEFS.push({ n: 'Ghost', fx: 'nope', bright: 50 }); const ok = !sceneList().some(s => s.n === 'Ghost'); SCENE_DEFS.pop(); return ok; }), true, 'unknown effects skipped');
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,

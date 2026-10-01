@@ -167,7 +167,10 @@
       <div class="label">Now playing</div>
       <div class="now" id="rideNow">nothing yet</div>
     </div>
-    <div class="label">Favourites</div>
+    <div class="label">Scenes</div>
+    <div class="ridegrid" id="rideScenes"></div>
+    <div class="hint">One tap sets effect, brightness and brake light. Hold a scene to overwrite it with what is playing now.</div>
+    <div class="label" style="margin-top:14px">Favourites</div>
     <div class="ridegrid" id="rideFavs"></div>
     <div class="hint">Tap ☆ on any effect to put it here.</div>
     <div class="ridegrid" style="margin-top:12px">
@@ -491,7 +494,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-01 ride1';
+const APP_BUILD = '2026-10-01 scenes1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1343,8 +1346,9 @@ function renderBrakeBtns() {
     b.textContent = '🛑 Brake light: ' + (S.brakeOn ? 'ON' : 'OFF'); b.classList.toggle('active', S.brakeOn); if (!big) b.classList.toggle('primary', S.brakeOn);
   }
 }
-function toggleBrake() {
-  const on = !S.brakeOn; S.brakeOn = on; store('brakeOn', on);
+function toggleBrake() { setBrake(!S.brakeOn); }
+function setBrake(on) {
+  if (on === S.brakeOn && (brake.on === on)) return; S.brakeOn = on; store('brakeOn', on);
   if (on) { startBrake(); if (!chr) toast('Connect to the strip to see the brake light'); } else stopBrake();
 }
 function brakeStatus(t, bad) { const el = document.getElementById('brakeStatus'); el.textContent = t; el.className = 'hint' + (bad ? ' warn' : ''); }
@@ -2125,6 +2129,50 @@ function applyFav(i) {
   else runEffect(f.cur.id, f.cur.params);
   document.querySelectorAll('.fav').forEach((b, j) => b.classList.toggle('active', j === i));
 }
+/* ---------------- scenes ---------------- */
+// Scenes whose effect doesn't exist yet are skipped, so later styles just add entries here.
+const SCENE_DEFS = [
+  { n: 'Night Ride', fx: 'ocean', bright: 85, brake: 1 },
+  { n: 'Blaze', fx: 'fire3', bright: 100 },
+  { n: 'Party', fx: 'mparty', bright: 100 },
+  { n: 'Sunset cruise', fx: 'sunset', bright: 70, brake: 1 },
+  { n: 'Police', fx: 'police', bright: 100 },
+  { n: 'Parked glow', fx: 'breathe', bright: 25, brake: 0 },
+];
+let sceneOv = {}; try { sceneOv = JSON.parse(localStorage.getItem('sceneOv') || '{}') || {}; } catch (e) {}
+function sceneList() { return SCENE_DEFS.filter(d => byId[d.fx]).map(d => sceneOv[d.n] ? { ...sceneOv[d.n], n: d.n, mine: true } : d); }
+function applyScene(i) {
+  const sc = sceneList()[i]; if (!sc) return;
+  S.bright = Math.max(0.08, sc.bright / 100);
+  document.getElementById('bright').value = Math.round(S.bright * 100); document.getElementById('brightVal').textContent = Math.round(S.bright * 100) + '%';
+  const br = document.getElementById('brightRide'); if (br) br.value = Math.round(S.bright * 100);
+  store('bright', Math.round(S.bright * 100));
+  if (sc.speed) { S.speed = sc.speed; document.getElementById('speed').value = Math.round(sc.speed * 100); document.getElementById('speedVal').textContent = sc.speed.toFixed(1) + '×'; }
+  if (sc.lock != null) { S.lockMode = sc.lock; store('lockFx', sc.lock); }
+  if (sc.brake != null) setBrake(!!sc.brake);
+  if (sc.cur) { if (sc.cur.kind === 'solid') setSolid(sc.cur.id); else if (sc.cur.kind === 'builtin') setBuiltin(sc.cur.id); else runEffect(sc.cur.id, sc.cur.params); }
+  else runEffect(sc.fx, sc.params);
+  S.scene = sc.n; renderScenes(); toast('Scene: ' + sc.n);
+}
+function overwriteScene(i) {
+  const sc = sceneList()[i]; if (!sc) return;
+  if (!S.current || S.current.kind === 'stripmic') { toast('Play an effect or colour first'); return; }
+  sceneOv[sc.n] = { cur: JSON.parse(JSON.stringify(S.current)), bright: Math.round(S.bright * 100), speed: S.speed, lock: S.lockMode, brake: S.brakeOn ? 1 : 0 };
+  try { localStorage.setItem('sceneOv', JSON.stringify(sceneOv)); } catch (e) {}
+  renderScenes(); toast('Saved over "' + sc.n + '"');
+}
+function renderScenes() {
+  const box = document.getElementById('rideScenes'); if (!box) return;
+  box.innerHTML = sceneList().map((sc, i) => `<button class="rtile${S.scene === sc.n ? ' active' : ''}" data-scene="${i}">${sc.n.replace(/</g, '&lt;')}${sc.mine ? ' ✎' : ''}</button>`).join('');
+}
+(function () {
+  const box = document.getElementById('rideScenes'); let timer = null, held = false;
+  box.addEventListener('pointerdown', ev => { const b = ev.target.closest('[data-scene]'); if (!b) return; held = false; timer = setTimeout(() => { held = true; overwriteScene(+b.dataset.scene); }, 700); });
+  const stop = () => clearTimeout(timer);
+  box.addEventListener('pointerup', stop); box.addEventListener('pointerleave', stop); box.addEventListener('pointercancel', stop);
+  box.addEventListener('contextmenu', ev => ev.preventDefault());
+  box.addEventListener('click', ev => { const b = ev.target.closest('[data-scene]'); if (b && !held) applyScene(+b.dataset.scene); held = false; });
+})();
 const STARTERS = [{ n: 'Rainbow', go: () => runEffect('rainbow') }, { n: 'Blaze (fire)', go: () => runEffect('fire3') }, { n: 'Police', go: () => runEffect('police') }, { n: 'Calm blue', go: () => setSolid('#1d4ed8') }];
 function renderFavs() {
   const esc = t => String(t).replace(/</g, '&lt;');
@@ -2170,7 +2218,7 @@ setInterval(() => {
 document.getElementById('brightRide').value = Math.round(S.bright * 100);
 document.getElementById('brightRide').addEventListener('input', e => { const t = document.getElementById('bright'); t.value = e.target.value; t.dispatchEvent(new Event('input')); });
 document.querySelectorAll('input[type=range]').forEach(i => { if (!i.getAttribute('aria-label')) { const l = i.closest('.slider') && i.closest('.slider').querySelector('label'); i.setAttribute('aria-label', (l && l.textContent) || 'slider'); } });
-renderNight(); renderBrakeBtns();
+renderNight(); renderBrakeBtns(); renderScenes();
 if (load('musicV', 0) < 3) { for (const id of ['mpulse', 'mbeat', 'mparty', 'mspec', 'mflash', 'mbuiltin']) delete S.params[id]; store('params', S.params); store('musicV', 3); }
 renderModes(); renderFavs(); renderPower(); renderActive(); renderWires(); renderPixelsNow(); renderSongs();
 selectSource(S.audioSrc, true); document.getElementById('bpmVal').textContent = S.bpm;
