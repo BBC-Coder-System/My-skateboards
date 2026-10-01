@@ -147,6 +147,13 @@ Motion tab → 🛑 Brake light. Cruising = the current effect plays normally; w
 
 All Flash effects (Strobe, Police, Alternate/Random, Heartbeat) made the strip disconnect and reconnect repeatedly. Flow effects were fine. Power: 5000 mAh USB-C power bank → C-to-C L adapter → C-to-A adapter → strip's USB-A plug. Suspects: (1) the controller mishandles colour 0,0,0 and resets; (2) the power bank cuts out at near-zero load or on big current swings. Fix so far: `colorHex` never sends pure black; it sends a faint glow (`DARK_FLOOR` = 4) of the last lit colour. **Result 2026-09-30 21:03 (diagnostics log from the iPhone):** Strobe, Police, Alternate and Heartbeat ran back to back for ~1 min at update rate 20 with **no drops and no write timeouts** (one connection, up 57 s), and the user reported noticeably faster response overall. Promising but short: keep the log on and watch for drops over longer use. The power-bank test can wait unless drops return. **If drops continue**, especially on Alternate (which never goes black), it's power: test at 40% brightness, then try another power bank or a direct cable.
 
+### Stage 1 (build `2026-10-01 ride1`): Ride home screen + layout cleanup
+- New first tab **Ride**: Now playing, favourites as big tiles (4 starter picks until you star something), Brake and Music one-tap toggles, big Dim/Bright slider, power + **Start riding** (Ride mode).
+- Tabs renamed: Ride, Colour, Flow, Flash, Music, Brake (was Motion), Strip (was Built-in). Every effect tile has a star (☆/★) to add/remove it from favourites.
+- Settings is now a full-screen sheet with folds: Everyday (lock behaviour, night dimmer, disconnect), Your strip, Music speed, Fix problems (advanced; "Dimming gap" is now "Fade pacing"), Diagnostics. All element IDs kept.
+- Effect settings are a bottom sheet with a collapse button. Music tab: tuning controls folded away. Connection banner + dimmed controls when offline. Night dimmer veil. Pinch zoom allowed, 44 px minimum tap targets, aria labels.
+- Test status: 63 tests/375 assertions pass; layout checked by screenshots at 390x844 (no horizontal overflow).
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):
