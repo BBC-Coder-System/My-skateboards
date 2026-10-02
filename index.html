@@ -506,7 +506,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-02 pocket3';
+const APP_BUILD = '2026-10-02 sticky1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1349,8 +1349,13 @@ function autoEstimate() {
 }
 function autoApply(bpm, beatAt, conf, curFit) {
   const close = auto.locked && Math.abs(bpm - S.bpm) / S.bpm < 0.04;
-  if (!auto.locked || (!close && auto.cand && Math.abs(bpm - auto.cand) / auto.cand < 0.04 && ++auto.candN >= 3)) {
-    // first lock, or a new tempo heard 3 times in a row (song change): jump to it
+  // Phone log (Okay, 120 BPM): the lock held 120 for 2 minutes, then wandered to 106, 96, 131, 93 on quiet/busy passages while the song never changed.
+  // So once locked, a different tempo needs real proof: heard 6 times in a row, with decent confidence each time, and the current tempo no longer fitting the rhythm.
+  const wanted = auto.locked ? 6 : 1;
+  if (!close && auto.locked && auto.cand && Math.abs(bpm - auto.cand) / auto.cand < 0.04 && conf >= 2.5 && curFit < 0.6) auto.candN++;
+  else if (!close && auto.locked && (!auto.cand || Math.abs(bpm - auto.cand) / auto.cand >= 0.04 || conf < 2.5 || curFit >= 0.6)) { if (curFit >= 0.6 || conf < 2.5) auto.candN = Math.max(0, (auto.candN || 0) - 1); }
+  if (!auto.locked || (!close && auto.cand && Math.abs(bpm - auto.cand) / auto.cand < 0.04 && auto.candN >= wanted)) {
+    // first lock, or a clearly new tempo (song change): jump to it
     S.bpm = bpm; tempo.t0 = beatAt; tempo.lastIdx = Math.floor((performance.now() - beatAt) / (60000 / bpm) + 1e-6); tempo.lastHitIdx = undefined; tempo.hitPhase = 0;
     auto.locked = true; auto.cand = null; auto.candN = 0;
   } else if (close) {
@@ -1362,7 +1367,7 @@ function autoApply(bpm, beatAt, conf, curFit) {
     tempo.t0 += err * 0.3;
     auto.cand = null; auto.candN = 0;
   } else {
-    if (!auto.cand || Math.abs(bpm - auto.cand) / auto.cand >= 0.04) { auto.cand = bpm; auto.candN = 1; }
+    if (!auto.cand || Math.abs(bpm - auto.cand) / auto.cand >= 0.04) { auto.cand = bpm; auto.candN = (conf >= 2.5 && curFit < 0.6) ? 1 : 0; }
   }
   store('bpm', S.bpm);
   document.getElementById('bpmVal').textContent = S.bpm.toFixed(1);

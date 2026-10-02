@@ -197,6 +197,10 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 - Tested on the phone with navigator.audioSession: the type is already play-and-record before the mic starts; forcing ambient makes the mic fail ("AudioSession category is not compatible with audio capture"). So there is NO web workaround; the experiment setting was removed (the AUDIO SESSION log lines stay).
 - Conflict-free ways: the Strip mic source (the controller's own microphone, no phone audio used, also survives locking; put a speaker near the controller), play the music from a second device (then the phone mic just listens), or the Player source (songs inside the page).
 
+### Sticky Auto-listen lock (build sticky1)
+- Evidence: video + log of Jackson Wang - Okay (true 120 BPM). Strip follows the app preview within one 30 fps frame (about 0 ms), so Bluetooth/queue are NOT the off-beat cause. The log showed Auto-listen locked 119.8-120.7 for about 2 min, then wandered 106, 104, 96, 131, 93 (confidence 1-3) with the song unchanged, then back to 117.6: a new tempo was accepted after only 3 similar guesses in a row, even at low confidence.
+- Fix: once locked, a different tempo needs 6 estimates in a row, each with confidence of at least 2.5 and the current tempo no longer fitting (curFit under 0.6); weak or ambiguous guesses subtract from the count. A real song change still takes about 6-8 s. Covered by a unit test of autoApply.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

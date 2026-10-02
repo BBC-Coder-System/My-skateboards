@@ -2,3 +2,4 @@ test-audio/
 tests/build/
 tests/node_modules/
 tests/last-run.txt
+test-video/

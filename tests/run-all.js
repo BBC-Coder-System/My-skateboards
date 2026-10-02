@@ -827,6 +827,24 @@ test('new music effects run in all sources without errors and never go black (pu
   });
   for (const [id, v] of Object.entries(r)) p.ok(v.bad === 0 && v.mn >= 12 && v.mx > 100, id + ' ok ' + JSON.stringify(v));
 });
+test('Auto-listen lock is sticky: weak wandering guesses never move it; a clear new tempo moves it after 6 confident estimates', async p => {
+  const r = await p.ev(() => {
+    auto.locked = false; auto.cand = null; auto.candN = 0; S.bpm = 120;
+    const now = performance.now();
+    autoApply(120, now, 6, 1);                                  // first lock
+    const a = S.bpm;
+    for (const b of [106, 104, 96, 131, 93, 106, 105, 104]) autoApply(b, now, 2.0, 0.2);   // low-confidence wandering (as in the phone log)
+    const b1 = S.bpm;
+    for (let i = 0; i < 8; i++) autoApply(140, now, 4, 0.8);    // confident, but the current tempo still fits: no jump
+    const b2 = S.bpm;
+    for (let i = 0; i < 5; i++) autoApply(140, now, 4, 0.1);    // 5 clear estimates: not yet
+    const b3 = S.bpm;
+    autoApply(140, now, 4, 0.1);                                // the 6th: jump
+    return { a, b1, b2, b3, b4: S.bpm };
+  });
+  p.eq([r.a, r.b1, r.b2, r.b3], [120, 120, 120, 120], 'stays at 120 through weak and ambiguous guesses');
+  p.ok(Math.abs(r.b4 - 140) < 1, 'jumps to 140 after 6 confident estimates: ' + r.b4);
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,
