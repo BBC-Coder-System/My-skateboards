@@ -205,6 +205,10 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 - Video 6279 (120 fps) + log: tempo right (flash grid 1.003 s = 119.7 BPM) and average offset about 0 ms, but individual flashes scatter about +-100 ms. Suspected cause: Volume pulse adds mid/treble loudness (the mic hears almost no bass), not just the grid.
 - Volume pulse has a new setting Reacts to: Beat only (steadier) uses only the grid pulse. The 10 s music log line now has hitInt (median interval of fired pulses +- spread) and phaseErr (Auto-listen's measured beat phase error, avg and absolute), so off-beat can be measured without video.
 
+### Smoother beat phase (build phase1)
+- Logs for current vs Beat only showed the same phase error (about 100 ms typical) and pulse-interval wobble in both, so the scatter is Auto-listen's noisy phase readings, not the effect. Beat only had a lower sentAvg (about 63 vs 100 ms) but a few tempo dips.
+- Fix: the grid phase now follows the median of the last 5 readings, ignores under 20 ms, and moves 15 percent per second (was 30 percent of every reading). A lasting shift still wins within about 10 s.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

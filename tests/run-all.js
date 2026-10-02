@@ -845,6 +845,24 @@ test('Auto-listen lock is sticky: weak wandering guesses never move it; a clear 
   p.eq([r.a, r.b1, r.b2, r.b3], [120, 120, 120, 120], 'stays at 120 through weak and ambiguous guesses');
   p.ok(Math.abs(r.b4 - 140) < 1, 'jumps to 140 after 6 confident estimates: ' + r.b4);
 });
+test('Auto-listen phase is smoothed: noisy readings barely move the grid, a lasting shift does', async p => {
+  const r = await p.ev(() => {
+    const real = performance.now.bind(performance); let T = 1e6; performance.now = () => T;
+    auto.locked = false; auto.cand = null; auto.candN = 0; S.bpm = 120; tempo.t0 = T;
+    const P = 500, beatAtFor = errMs => Math.round(tempo.t0 / P) * P * 0 + tempo.t0 + errMs;   // a reading that says the beat is errMs after the grid
+    autoApply(120, T, 6, 1);                                                                   // first lock: grid = reading
+    const t0a = tempo.t0;
+    for (const e of [90, -110, 70, -95, 120, -80, 100, -130]) { T += 1000; autoApply(120, beatAtFor(e) + (T - T), 5, 1); }   // noisy, mean about 0
+    const drift = tempo.t0 - t0a - 0;                                                          // grid moved by (including the 8 s of elapsed beats)
+    const t0b = tempo.t0;
+    for (let i = 0; i < 12; i++) { T += 1000; autoApply(120, beatAtFor(80), 5, 1); }           // lasting +80 ms shift
+    const moved = tempo.t0 - t0b;
+    performance.now = real;
+    return { drift, moved };
+  });
+  p.ok(Math.abs(r.drift) < 40, 'noise moves the grid under 40 ms: ' + Math.round(r.drift));
+  p.ok(r.moved > 40, 'a lasting 80 ms shift is followed (moved ' + Math.round(r.moved) + ' ms)');
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,
