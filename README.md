@@ -215,6 +215,11 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 ### Power ramp and flash entrance (builds look2-3)
 - User: power on/off had no fade effect (the strip's own ON/OFF commands are instant, so the colour fade never showed), and Flash effects like Police just started. Now: power-off fades the colour (or, for a built-in effect, the strip brightness) down over about 0.6-1.2 s and only then sends OFF; power-on sends a near-dark colour first, then ON, then fades up. Tapping power during a ramp completes it at once. Flash effects get a short 180 ms blend in, never a slow one. All controlled by Settings > Look > Transitions (Off disables every fade). Tests now default to fadeMs 0 so they stay deterministic; one test covers the ramp.
 
+### Built-in plus phone flashes (build builtin1)
+- New effects that keep a MOVING built-in strip effect running and add phone-driven whole-strip flashes over it (the Fire 3 trick: colour flash at full strip brightness, then the effect command is re-sent, which restarts the movement from the start of the strip under the flash): Lightning chase (cyan/blue chase split by blue-white strikes, Flow tab), Glitch (colour wave with blackouts, wrong-colour snaps and stutters, Flow tab), Police chase (red-dot-in-blue running chase with red-blue bursts, Flash tab), Paparazzi (soft camera flicks over a purple/white flow, Flow tab), Heartbeat chase (running effect with lub-dub brightness steps, Flow tab), Launch sweep (Music tab: flash on every 2nd/4th/8th beat then the chase restarts from the start, a sweep per bar), Engine rev (Brake tab: chase speed follows motion energy and GPS speed).
+- Entrance: Settings > Look > Entrance = three quick flashes at the start of a phone-driven colour effect (not for built-in-driven or music effects).
+- Scenes added: Lightning chase, Glitch, Police chase. Flash segments last at least about 2 frames; first flash colour is sent before the brightness change so the old effect never blips. Real look on the strip is untested.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

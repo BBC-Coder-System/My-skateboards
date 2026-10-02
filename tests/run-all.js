@@ -892,6 +892,39 @@ test('power ramp: off fades the colour down and ends with the OFF packet; on sen
   p.ok(/^7e070503020202/.test(s2[0]) && s2[1] === '7e0404f00001ff00ef', 'dark colour first, then ON: ' + s2.slice(0, 2).join(' '));
   const g2 = c.map(x => parseInt(x.rgb.slice(2, 4), 16)); p.ok(g2.length >= 4 && g2[g2.length - 1] > g2[1] && g2[g2.length - 1] > 200, 'green fades up: ' + g2.join(','));
 }, { ls: { fadeMs: 450 } });
+test('built-in plus flashes: start sets the effect, flashes go out as colours, then the effect is re-sent; no black', async p => {
+  await p.connect();
+  for (const [id, prm] of [['lightning', { gap: 2 }], ['glitch', { every: 1 }], ['policechase', { every: 2 }], ['paparazzi', { every: 1.2 }]]) {
+    await p.clr(); await p.ev((id, prm) => runEffect(id, prm), id, prm);
+    await p.ev(() => { const st = scratch; st.next = performance.now() + 300; });   // first flash soon
+    await p.sleep(3500);
+    const all = (await p.pk()).map(x => x.h), modes = all.filter(h => /^7e0703/.test(h)), cols = await p.colours();
+    p.ok(modes.length >= 2, id + ': effect command sent at start and again after a flash (' + modes.length + ')');
+    p.ok(cols.length >= 2 && cols.every(c => c.rgb !== '000000'), id + ': flash colours sent, never pure black (' + cols.length + ')');
+  }
+});
+test('Launch sweep: flashes on every Nth beat and restarts the chase; Heartbeat chase sends lub-dub brightness steps', async p => {
+  await p.connect(); await p.clr();
+  await p.ev(() => { S.beatDiv = '1'; setBpm(150); runEffect('launch', { bars: 2 }); }); await p.sleep(4500);
+  let all = (await p.pk()).map(x => x.h);
+  p.ok(all.filter(h => /^7e0703/.test(h)).length >= 3, 'launch: the chase restarts after flashes (' + all.filter(h => /^7e0703/.test(h)).length + ')');
+  p.ok((await p.colours()).length >= 3, 'launch: flashes sent');
+  await p.clr(); await p.ev(() => runEffect('hbchase', { bpm: 90 })); await p.sleep(3000);
+  all = (await p.pk()).map(x => x.h); const br = all.filter(h => /^7e0401/.test(h));
+  p.ok(br.length >= 8, 'heartbeat: several brightness steps in 3 s (' + br.length + ')');
+});
+test('entrance flashes: three quick flashes at the start of a colour effect when enabled', async p => {
+  const r = await p.ev(() => {
+    const real = performance.now.bind(performance); let T = 3e6; performance.now = () => T;
+    S.intro = 1; S.contrast = 0; shape.from = null; shape.intro = T + 700;
+    const out = []; for (let i = 0; i < 12; i++) { out.push(Math.round(shapeColour([200, 100, 0], T)[0])); T += 66; }
+    T += 1000; const after = Math.round(shapeColour([200, 100, 0], T)[0]);
+    performance.now = real; S.intro = 0; shape.intro = 0;
+    return { out, after };
+  });
+  p.ok(r.out.some(v => v < 40) && r.out.some(v => v > 180), 'flashes on and off: ' + r.out.join(','));
+  p.eq(r.after, 200, 'normal after 0.7 s');
+}, {});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,

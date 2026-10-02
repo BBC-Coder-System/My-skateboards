@@ -348,6 +348,7 @@
       <div class="label" style="margin-top:12px">Look</div>
       <div class="slider"><label>Contrast</label><input type="range" id="contrast" min="0" max="100" value="0"><span class="val" id="contrastVal">0%</span></div>
       <div class="hint">Deeper darks and punchier peaks in colour effects, so they stand out on pavement at night. 0 leaves effects as designed.</div>
+      <div class="slider"><label>Entrance</label><select id="intro" style="flex:1"><option value="0">None</option><option value="1">Three quick flashes (colour effects)</option></select></div>
       <div class="slider"><label>Transitions</label><select id="fadeMs" style="flex:1"><option value="0">Off (instant)</option><option value="450">Quick fade</option><option value="900">Slow fade</option></select></div>
       <div class="label" style="margin-top:12px">Display</div>
       <button class="small" id="btnNight" style="width:100%" onclick="toggleNight()">🌙 Night dimmer: Off</button>
@@ -510,7 +511,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-02 look3';
+const APP_BUILD = '2026-10-03 builtin1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -569,7 +570,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  contrast: load('contrast', 0), fadeMs: load('fadeMs', 450), pocket: load('pocket', false), autoWanted: load('autoTempo', false), idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  intro: load('intro', 0), contrast: load('contrast', 0), fadeMs: load('fadeMs', 450), pocket: load('pocket', false), autoWanted: load('autoTempo', false), idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -771,6 +772,27 @@ const smooth = t => 0.5 - 0.5 * Math.cos(Math.PI * t);
 const BLACK = [0, 0, 0];
 const fireFlow = p => Math.max(1, Math.min(100, Math.round(p.flow * S.speed)));
 // Flare peak colours: red-orange to orange only (no near-white, which read as a camera flash).
+// ---- "Built-in plus": a moving strip effect with phone-driven flashes over it (same trick as Fire 3) ----
+// The strip runs the moving effect by itself. For a flash the phone sends whole-strip colours (full strip brightness first), then
+// re-sends the effect command, which also restarts the movement from the start of the strip: that restart is hidden under the flash.
+const bxMin = () => Math.max(90, 1500 / effFps());   // a flash segment lasts at least ~2 frames, so it is always visible
+function bxBase(st, mode, flow) { st.base = mode; st.flow = flow; sendCmd(CMD.mode(mode)); sendCmd(CMD.speed(flow)); S.hwBright = -1; st.fl = null; }
+function bxFlash(st, seq, now) {
+  pendingColor = null; slot.bright = null;
+  sendCmd(colorHex(seq[0][0]));             // the first flash colour goes out before the brightness change: no blip of the old effect
+  sendCmd(CMD.bright(100)); S.hwBright = 100;
+  st.fl = { seq, t0: now };
+}
+function bxStep(st, now) {                  // true while a flash is playing
+  const fl = st.fl; if (!fl) return false;
+  let e = now - fl.t0;
+  for (const [c, ms] of fl.seq) { if (e < ms) { sendColor(c); return true; } e -= ms; }
+  st.fl = null; bxBase(st, st.base, st.flow); return false;
+}
+function bxBright(st, lvl = 1) { const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * lvl))); if (Math.abs(b - S.hwBright) >= 3 || (b <= 5 && b !== S.hwBright)) { S.hwBright = b; sendCmd(CMD.bright(b)); } }
+const BX_RUN = [[103, '7-colour running'], [97, 'Cyan running'], [93, 'Blue running'], [99, 'Purple running'], [89, 'Red running']];
+const bxLock = (p, st) => [CMD.mode(st.base || p.base), CMD.speed(st.flow || fireFlow(p))];
+function bxPreview(css) { document.getElementById('preview').style.background = css; }
 const FLARES = [[255, 60, 0], [255, 80, 0], [255, 100, 0], [255, 120, 5], [240, 50, 0]];
 const EMBER = [150, 18, 0]; // dim glow each flare starts from and fades back to
 // Flicker, gutters and flare-ups on the strip's brightness, plus gusts on its flow speed.
@@ -1716,6 +1738,107 @@ const EFFECTS = [
       }
       fireLife(t, p, st, st.base === 208 ? [255, 190, 0] : [255, 40, 0]);
     } },
+  // ---- built-in plus phone flashes ----
+  { id: 'lightning', group: 'flow', name: 'Lightning chase', desc: 'A cyan chase, split by blue-white lightning',
+    params: { base: { type: 'select', label: 'Chase', v: 97, restart: true, options: [[97, 'Cyan running'], [93, 'Blue running'], [147, 'White-blue-white flow'], [163, 'Cyan-white-cyan flow']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 40 }, gap: { label: 'Strike every (s)', min: 2, max: 15, step: 1, v: 7 }, strength: { label: 'Bolt strength', min: 0.5, max: 1, step: 0.05, v: 1 } },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 2000 + Math.random() * 2500; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const now = performance.now();
+      if (bxStep(st, now)) return;
+      if (now >= st.next) {
+        const n = 1 + Math.floor(Math.random() * 3), seq = [], r = Math.random, bolt = scale([170, 205, 255], p.strength);
+        for (let i = 0; i < n; i++) { const last = i === n - 1; seq.push([last ? bolt : scale(bolt, 0.6), Math.max(bxMin(), (last ? 170 : 100) + r() * 70)]); if (!last) seq.push([[6, 12, 40], Math.max(bxMin(), 70 + r() * 90)]); }
+        bxFlash(st, seq, now); st.next = now + p.gap * (0.5 + r()) * 1000; return;
+      }
+      bxBright(st); bxPreview('linear-gradient(90deg,#064,#0cf,#064,#0cf)');
+    } },
+  { id: 'glitch', group: 'flow', name: 'Glitch', desc: 'A colour wave that keeps hiccuping and rebooting',
+    params: { base: { type: 'select', label: 'Wave', v: 83, restart: true, options: [[83, '7-colour wave'], [85, 'R-G-B wave'], [87, 'Y-C-P wave'], [103, '7-colour running']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 45 }, every: { label: 'Glitch every (s)', min: 1, max: 8, step: 0.5, v: 3 } },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 1500 + Math.random() * 1500; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const now = performance.now(), r = Math.random;
+      if (bxStep(st, now)) return;
+      if (now >= st.next) {
+        const wrong = () => hsv(r() * 360), dark = [6, 6, 10], m = () => Math.max(bxMin(), 100 + r() * 90), k = r();
+        const seq = k < 0.35 ? [[dark, m()]] : k < 0.7 ? [[wrong(), m()]] : [[dark, m()], [wrong(), m()], [dark, m()], [wrong(), m()]]; // blackout / wrong colour / stutter
+        bxFlash(st, seq, now); st.next = now + p.every * (0.4 + r() * 1.2) * 1000; return;
+      }
+      bxBright(st); bxPreview('linear-gradient(90deg,#f0a,#0f8,#08f,#fd0)');
+    } },
+  { id: 'policechase', group: 'flash', name: 'Police chase', desc: 'A running red-blue chase with red-blue bursts',
+    params: { base: { type: 'select', label: 'Chase', v: 171, restart: true, options: [[171, 'Red dot in blue running'], [93, 'Blue running'], [89, 'Red running']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 55 }, every: { label: 'Burst every (s)', min: 2, max: 10, step: 0.5, v: 4 }, pairs: { label: 'Red-blue pairs', min: 2, max: 6, step: 1, v: 3 } },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 1500; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const now = performance.now();
+      if (bxStep(st, now)) return;
+      if (now >= st.next) {
+        const seq = [], ms = Math.max(bxMin(), 110);
+        for (let i = 0; i < p.pairs; i++) seq.push([[255, 0, 0], ms], [[0, 40, 255], ms]);
+        bxFlash(st, seq, now); st.next = now + p.every * (0.7 + Math.random() * 0.6) * 1000; return;
+      }
+      bxBright(st); bxPreview('linear-gradient(90deg,#f00,#00f,#f00,#00f)');
+    } },
+  { id: 'paparazzi', group: 'flow', name: 'Paparazzi', desc: 'A slow glow with soft camera flicks',
+    params: { base: { type: 'select', label: 'Glow', v: 165, restart: true, options: [[165, 'P-W-P flow'], [153, 'W-P-W flow'], [207, 'Blue marquee'], [210, 'Purple marquee']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 25 }, every: { label: 'Flick every (s)', min: 1.2, max: 8, step: 0.2, v: 2.6 } },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 1500; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const now = performance.now(), r = Math.random;
+      if (bxStep(st, now)) return;
+      if (now >= st.next) {
+        const w = [255, 244, 225], n = r() < 0.25 ? 2 + Math.floor(r() * 2) : 1, seq = [];   // sometimes a quick burst of 2-3
+        for (let i = 0; i < n; i++) { seq.push([scale(w, 0.5), bxMin()], [scale(w, 0.2), bxMin()]); if (i < n - 1) seq.push([[40, 20, 60], bxMin()]); }  // soft: never full white
+        bxFlash(st, seq, now); st.next = now + p.every * (0.6 + r() * 0.9) * 1000; return;
+      }
+      bxBright(st); bxPreview('linear-gradient(90deg,#609,#fff4,#609,#a4f)');
+    } },
+  { id: 'hbchase', group: 'flow', name: 'Heartbeat chase', desc: 'A running effect that does a lub-dub',
+    params: { base: { type: 'select', label: 'Chase', v: 89, restart: true, options: [[89, 'Red running'], [99, 'Purple running'], [93, 'Blue running'], [205, 'Red marquee']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 40 }, bpm: { label: 'Beats per minute', min: 40, max: 110, step: 1, v: 62 }, low: { label: 'Between beats', min: 0.04, max: 0.4, step: 0.02, v: 0.12 } },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.t0 = performance.now(); st.stage = -1; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const per = 60000 / p.bpm, ph = ((performance.now() - st.t0) % per) / per;
+      const stage = ph < 0.14 ? 0 : ph < 0.26 ? 1 : ph < 0.40 ? 2 : 3;      // lub, gap, dub, rest
+      if (stage !== st.stage) { st.stage = stage; bxBright(st, [1, p.low * 1.5, 0.75, p.low][stage]); }
+      bxPreview('linear-gradient(90deg,#400,#f33,#400,#f33)');
+    } },
+  { id: 'launch', group: 'music', name: 'Launch sweep', desc: 'Every bar: a flash, then the chase fires from the start', needs: 'audio',
+    params: { base: { type: 'select', label: 'Chase', v: 103, restart: true, options: BX_RUN }, flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 60 },
+      bars: { type: 'select', label: 'Launch on', v: 4, options: [[2, 'Every 2nd beat'], [4, 'Every 4th beat'], [8, 'Every 8th beat']] } },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.n = 0; st.last = 0; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const now = performance.now();
+      if (bxStep(st, now)) return;
+      if (audio.beat) {
+        st.n = (st.n || 0) + 1;
+        if (st.n % p.bars === 1 && now - (st.last || 0) > 900) {
+          st.last = now; bxFlash(st, [[[215, 240, 255], Math.max(bxMin(), 120)], [[10, 10, 25], Math.max(bxMin(), 80)]], now); urgent = true; return; // the chase restarts right after: a sweep from the start
+        }
+      }
+      bxBright(st, 0.55 + 0.45 * Math.min(1, audio.level * 1.2)); bxPreview('linear-gradient(90deg,#fff,#08f,#0cf,#fff)');
+    } },
+  { id: 'rev', group: 'motion', name: 'Engine rev', desc: 'The chase speeds up the harder you ride', needs: 'motion',
+    params: { base: { type: 'select', label: 'Chase', v: 103, restart: true, options: BX_RUN }, lo: { label: 'Idle speed', min: 5, max: 60, step: 1, v: 12 }, hi: { label: 'Top speed', min: 40, max: 100, step: 1, v: 90 } },
+    start: (p, st) => { bxBase(st, p.base, p.lo); st.sp = p.lo; st.spAt = 0; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const now = performance.now(), dt = frameDt(st);
+      let e = Math.min(1, (motion.energy || 0) / 5);
+      if (brake.on && brake.speed != null && now - brake.fixAt < 8000) e = Math.max(e, Math.min(1, brake.speed / 9));   // GPS speed counts too
+      st.e = follow(st.e || 0, e, dt, 0.5, 1.5);
+      const sp = Math.round(p.lo + (p.hi - p.lo) * st.e);
+      if (Math.abs(sp - st.sp) >= 4 && now - st.spAt > 300) { st.sp = sp; st.spAt = now; st.flow = sp; sendCmd(CMD.speed(sp)); }
+      bxBright(st, 0.5 + 0.5 * st.e); bxPreview('linear-gradient(90deg,#08f,#0ff,#08f,#0ff)');
+    } },
   // Neon Tube: a lit sign with a faint hum; every few seconds the tube "catches" (stutters off and on) and settles.
   { id: 'neon', group: 'flow', name: 'Neon Tube', desc: 'Glowing sign that stutters now and then',
     params: { color: { type: 'color', v: '#ff2bd6' }, every: { label: 'Stutter every (s)', min: 4, max: 20, step: 1, v: 9 },
@@ -2129,6 +2252,7 @@ function idleGov(rgb, now) {
 const shape = { last: [0, 0, 0], from: null, t0: 0, dur: 0 };
 function startFade(ms, fromDark) { if (!(ms > 0)) return; shape.from = fromDark ? [0, 0, 0] : shape.last.slice(); shape.t0 = performance.now(); shape.dur = ms; }
 function shapeColour(c, now) {
+  if (shape.intro && now < shape.intro) { const seg = Math.floor((now - (shape.intro - 700)) / 140); if (seg % 2 === 1) c = c.map(x => x * 0.12); } // three quick flashes on entrance
   const m = Math.max(c[0], c[1], c[2]);
   if (S.contrast > 0 && m > 0) { const v = Math.min(1, m / 255), k = Math.pow(v, 1 + 2 * S.contrast) / v; c = c.map(x => x * k); }
   if (shape.from) {
@@ -2168,7 +2292,8 @@ async function runEffect(id, params) {
   const e = byId[id];
   if (!e) return; // a saved favourite for an effect that no longer exists
   const tok = ++effectTok; idle.stopAt = performance.now();
-  startFade(e.group === 'flash' ? Math.min(S.fadeMs, 180) : S.fadeMs); // flash effects get a short, quick blend in (never a slow fade) // picking something counts as activity: the new effect shows for the 'Start after' time before parking
+  startFade(e.group === 'flash' ? Math.min(S.fadeMs, 180) : S.fadeMs);
+  shape.intro = S.intro && e.fn && e.group !== 'flash' && e.needs !== 'audio' ? performance.now() + 700 : 0; // flash effects get a short, quick blend in (never a slow fade) // picking something counts as activity: the new effect shows for the 'Start after' time before parking
   dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
   if (e.needs === 'audio' && S.autoWanted && !auto.on && S.audioSrc === 'tempo') toggleAuto(true); // Auto-listen was on last time: this tap lets iOS start the mic again
@@ -2590,6 +2715,9 @@ const SCENE_DEFS = [
   { n: 'Synthwave', fx: 'synth', bright: 90 },
   { n: 'Carve', fx: 'carve', bright: 90 },
   { n: 'Pump', fx: 'mpump', bright: 100 },
+  { n: 'Lightning chase', fx: 'lightning', bright: 100 },
+  { n: 'Glitch', fx: 'glitch', bright: 100 },
+  { n: 'Police chase', fx: 'policechase', bright: 100 },
   { n: 'Police', fx: 'police', bright: 100 },
   { n: 'Parked glow', fx: 'breathe', bright: 25, brake: 0 },
 ];
@@ -2677,6 +2805,8 @@ document.querySelectorAll('input[type=range]').forEach(i => { if (!i.getAttribut
 renderNight(); renderBrakeBtns(); renderScenes(); renderPocket();
 document.getElementById('contrast').value = Math.round(S.contrast * 100); document.getElementById('contrastVal').textContent = Math.round(S.contrast * 100) + '%';
 document.getElementById('contrast').addEventListener('input', e => { S.contrast = e.target.value / 100; store('contrast', S.contrast); document.getElementById('contrastVal').textContent = e.target.value + '%'; });
+document.getElementById('intro').value = String(S.intro);
+document.getElementById('intro').addEventListener('change', e => { S.intro = +e.target.value; store('intro', S.intro); });
 document.getElementById('fadeMs').value = String(S.fadeMs);
 document.getElementById('fadeMs').addEventListener('change', e => { S.fadeMs = +e.target.value; store('fadeMs', S.fadeMs); });
 document.getElementById('idleAfter').value = String(S.idleAfter);
