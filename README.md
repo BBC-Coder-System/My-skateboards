@@ -209,6 +209,9 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 - Logs for current vs Beat only showed the same phase error (about 100 ms typical) and pulse-interval wobble in both, so the scatter is Auto-listen's noisy phase readings, not the effect. Beat only had a lower sentAvg (about 63 vs 100 ms) but a few tempo dips.
 - Fix: the grid phase now follows the median of the last 5 readings, ignores under 20 ms, and moves 15 percent per second (was 30 percent of every reading). A lasting shift still wins within about 10 s.
 
+### Contrast and transitions (build look1)
+- Settings > Everyday > Look: Contrast slider (0-100 percent; bends brightness so darks go darker and peaks stay full, same hue; applies to phone-driven colour effects, not solid colours, built-in effects or the brake light) and Transitions (Off / Quick 450 ms / Slow 900 ms): a crossfade from whatever was showing when a new effect starts (not for Flash effects), and a fade up from dark when the strip is powered on. Defaults: contrast 0, quick fade.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

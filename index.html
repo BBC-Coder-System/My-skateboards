@@ -345,6 +345,10 @@
       </select>
       <div class="slider" id="lockModeRow"><label>Effect</label><select id="lockMode" style="flex:1;padding:10px;border-radius:10px;background:#000;color:var(--text);border:1px solid var(--line);font-size:14px"></select></div>
       
+      <div class="label" style="margin-top:12px">Look</div>
+      <div class="slider"><label>Contrast</label><input type="range" id="contrast" min="0" max="100" value="0"><span class="val" id="contrastVal">0%</span></div>
+      <div class="hint">Deeper darks and punchier peaks in colour effects, so they stand out on pavement at night. 0 leaves effects as designed.</div>
+      <div class="slider"><label>Transitions</label><select id="fadeMs" style="flex:1"><option value="0">Off (instant)</option><option value="450">Quick fade</option><option value="900">Slow fade</option></select></div>
       <div class="label" style="margin-top:12px">Display</div>
       <button class="small" id="btnNight" style="width:100%" onclick="toggleNight()">🌙 Night dimmer: Off</button>
       <div class="label" style="margin-top:12px">Parked glow</div>
@@ -506,7 +510,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-02 phase1';
+const APP_BUILD = '2026-10-02 look1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -565,7 +569,7 @@ const S = {
   otherFx: load('otherFx', false),
   audioSrc: load('audioSrc', 'tempo'), bpm: load('bpm', 120), syncDelay: load('syncDelay', 200),
   brakeOn: load('brakeOn', false), brakeSens: load('brakeSens', 7), brakeStyle: load('brakeStyle', 'flash'), brakeFast: load('brakeFast', true),
-  pocket: load('pocket', false), autoWanted: load('autoTempo', false), idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
+  contrast: load('contrast', 0), fadeMs: load('fadeMs', 450), pocket: load('pocket', false), autoWanted: load('autoTempo', false), idleAfter: load('idleAfter', 0), idleStyle: load('idleStyle', 'breathe'), idleSpeed: load('idleSpeed', 3), idleColor: load('idleColor', '#ff6e00'), idleBright: load('idleBright', 0.25), idleDeep: load('idleDeep', 0), lastMusic: load('lastMusic', 'mpulse'), night: load('night', false), slowGap: load('slowGap', 120), beatDiv: load('beatDiv', 'auto'), musicFps: load('musicFps', 30), fastColourAll: load('fastColourAll', false), smoothFx: load('smoothFx', true), micGainDb: load('micGainDb', 12), levelMode: load('levelMode', 'follow'), fastWrite: load('fastWrite', true), musicFlag: load('musicFlag', 0x20), stripMode: load('stripMode', 128), stripSens: load('stripSens', 50),
   beatOffset: load('beatOffset', -60), // lights lead the heard beat to cover mic input + Bluetooth-to-strip delay
   hwBright: 100, hwSpeed: load('hwSpeed', 50), legacyFx: load('legacyFx', false),
   pixels: load('pixels', null), wires: load('wires', null),
@@ -2119,6 +2123,19 @@ function idleGov(rgb, now) {
   if (idle.k < 0.003) return rgb;
   return mix(rgb, parkedColour(now, still), idle.k);
 }
+// Contrast: bends brightness so lows go darker and highs stay bright (same hue). 0 = as designed, 1 = deep darks.
+// Transitions: a short crossfade from whatever was showing when a new effect starts, and a fade up from dark when the strip powers on.
+const shape = { last: [0, 0, 0], from: null, t0: 0, dur: 0 };
+function startFade(ms, fromDark) { if (!(ms > 0)) return; shape.from = fromDark ? [0, 0, 0] : shape.last.slice(); shape.t0 = performance.now(); shape.dur = ms; }
+function shapeColour(c, now) {
+  const m = Math.max(c[0], c[1], c[2]);
+  if (S.contrast > 0 && m > 0) { const v = Math.min(1, m / 255), k = Math.pow(v, 1 + 2 * S.contrast) / v; c = c.map(x => x * k); }
+  if (shape.from) {
+    const x = (now - shape.t0) / shape.dur;
+    if (x >= 1) shape.from = null; else c = mix(shape.from, c, smooth(Math.max(0, x)));
+  }
+  shape.last = c; return c;
+}
 function tick(now = performance.now()) {
   tVirtual += (now - lastTick) / 1000 * S.speed;
   lastTick = now;
@@ -2128,7 +2145,7 @@ function tick(now = performance.now()) {
   if (e.needs === 'audio') { updateAudio(now); if (audio.beat) urgent = true; }
   try {
     if (e.drive) e.drive(tVirtual, S.current.params, scratch);
-    else { const c = e.fn(tVirtual, S.current.params, scratch); sendColor(S.idleAfter > 0 && e.needs !== 'audio' ? idleGov(c, now) : c); }
+    else { const c = e.fn(tVirtual, S.current.params, scratch); sendColor(shapeColour(S.idleAfter > 0 && e.needs !== 'audio' ? idleGov(c, now) : c, now)); }
   } catch (err) { console.warn(err); }
   if (!cmdQueue.length && !pendingColor && !slot.bright && !slot.speed) urgent = false; // nothing to send this frame: don't let it leak to a later one
 }
@@ -2149,7 +2166,8 @@ let effectTok = 0;
 async function runEffect(id, params) {
   const e = byId[id];
   if (!e) return; // a saved favourite for an effect that no longer exists
-  const tok = ++effectTok; idle.stopAt = performance.now(); // picking something counts as activity: the new effect shows for the 'Start after' time before parking
+  const tok = ++effectTok; idle.stopAt = performance.now();
+  if (e.group !== 'flash' && e.needs !== 'audio' && S.current && S.current.kind === 'effect') startFade(S.fadeMs); else if (e.group !== 'flash') startFade(S.fadeMs); // picking something counts as activity: the new effect shows for the 'Start after' time before parking
   dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
   if (e.needs === 'audio' && S.autoWanted && !auto.on && S.audioSrc === 'tempo') toggleAuto(true); // Auto-listen was on last time: this tap lets iOS start the mic again
@@ -2203,7 +2221,7 @@ function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPow
 function togglePower() {
   S.power = !S.power; dlog('power', S.power ? 'on' : 'off');
   sendCmd(S.power ? CMD.on : CMD.off);
-  if (S.power) restoreOutput(); else { stopEngine(); pendingColor = null; slot.bright = null; slot.speed = null; document.getElementById('preview').style.background = '#000'; } // a frame computed just before must not follow the OFF command
+  if (S.power) { startFade(Math.max(S.fadeMs * 2, 0), true); restoreOutput(); } else { stopEngine(); pendingColor = null; slot.bright = null; slot.speed = null; document.getElementById('preview').style.background = '#000'; } // a frame computed just before must not follow the OFF command
   renderPower();
 }
 function renderPower() { for (const id of ['btnPower', 'btnPowerRide']) { const b = document.getElementById(id); if (!b) continue; b.classList.toggle('off', !S.power); b.textContent = S.power ? 'ON' : 'OFF'; } }
@@ -2625,6 +2643,10 @@ document.getElementById('brightRide').value = Math.round(S.bright * 100);
 document.getElementById('brightRide').addEventListener('input', e => { const t = document.getElementById('bright'); t.value = e.target.value; t.dispatchEvent(new Event('input')); });
 document.querySelectorAll('input[type=range]').forEach(i => { if (!i.getAttribute('aria-label')) { const l = i.closest('.slider') && i.closest('.slider').querySelector('label'); i.setAttribute('aria-label', (l && l.textContent) || 'slider'); } });
 renderNight(); renderBrakeBtns(); renderScenes(); renderPocket();
+document.getElementById('contrast').value = Math.round(S.contrast * 100); document.getElementById('contrastVal').textContent = Math.round(S.contrast * 100) + '%';
+document.getElementById('contrast').addEventListener('input', e => { S.contrast = e.target.value / 100; store('contrast', S.contrast); document.getElementById('contrastVal').textContent = e.target.value + '%'; });
+document.getElementById('fadeMs').value = String(S.fadeMs);
+document.getElementById('fadeMs').addEventListener('change', e => { S.fadeMs = +e.target.value; store('fadeMs', S.fadeMs); });
 document.getElementById('idleAfter').value = String(S.idleAfter);
 document.getElementById('idleAfter').addEventListener('change', e => { S.idleAfter = +e.target.value; store('idleAfter', S.idleAfter); idle.k = 0; idle.stopAt = 0; });
 for (const key of ['idleStyle', 'idleDeep']) {

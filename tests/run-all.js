@@ -863,6 +863,22 @@ test('Auto-listen phase is smoothed: noisy readings barely move the grid, a last
   p.ok(Math.abs(r.drift) < 40, 'noise moves the grid under 40 ms: ' + Math.round(r.drift));
   p.ok(r.moved > 40, 'a lasting 80 ms shift is followed (moved ' + Math.round(r.moved) + ' ms)');
 });
+test('contrast deepens darks and keeps peaks and hue; crossfade blends from the previous colour; power-on fades up from dark', async p => {
+  const r = await p.ev(() => {
+    const real = performance.now.bind(performance); let T = 2e6; performance.now = () => T;
+    S.contrast = 0; shape.from = null; const flat = shapeColour([100, 50, 20], T);
+    S.contrast = 1; const deep = shapeColour([100, 50, 20], T), peak = shapeColour([255, 128, 0], T);
+    S.contrast = 0; shape.last = [200, 0, 0]; startFade(400); const f0 = shapeColour([0, 0, 200], T); T += 200; const f1 = shapeColour([0, 0, 200], T); T += 300; const f2 = shapeColour([0, 0, 200], T);
+    startFade(900, true); const p0 = shapeColour([100, 100, 100], T); T += 450; const p1 = shapeColour([100, 100, 100], T);
+    performance.now = real; S.contrast = 0; shape.from = null;
+    return { flat, deep, peak, f0, f1, f2, p0, p1 };
+  });
+  p.ok(r.deep[0] < r.flat[0] * 0.5, 'contrast darkens a dim colour: ' + Math.round(r.deep[0]) + ' vs ' + r.flat[0]);
+  p.ok(Math.abs(r.deep[0] / r.deep[1] - 2) < 0.05, 'hue kept (R:G stays 2:1)');
+  p.ok(r.peak[0] > 250, 'full brightness stays full: ' + Math.round(r.peak[0]));
+  p.ok(r.f0[0] > 190 && r.f1[0] > 20 && r.f1[0] < 180 && r.f2[2] > 195 && r.f2[0] < 5, 'crossfade goes red -> blue through the middle');
+  p.ok(r.p0[0] < 5 && r.p1[0] > 30 && r.p1[0] < 95, 'power-on fades up from dark: ' + Math.round(r.p0[0]) + ' -> ' + Math.round(r.p1[0]));
+});
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,
