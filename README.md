@@ -212,6 +212,9 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 ### Contrast and transitions (build look1)
 - Settings > Everyday > Look: Contrast slider (0-100 percent; bends brightness so darks go darker and peaks stay full, same hue; applies to phone-driven colour effects, not solid colours, built-in effects or the brake light) and Transitions (Off / Quick 450 ms / Slow 900 ms): a crossfade from whatever was showing when a new effect starts (not for Flash effects), and a fade up from dark when the strip is powered on. Defaults: contrast 0, quick fade.
 
+### Power ramp and flash entrance (builds look2-3)
+- User: power on/off had no fade effect (the strip's own ON/OFF commands are instant, so the colour fade never showed), and Flash effects like Police just started. Now: power-off fades the colour (or, for a built-in effect, the strip brightness) down over about 0.6-1.2 s and only then sends OFF; power-on sends a near-dark colour first, then ON, then fades up. Tapping power during a ramp completes it at once. Flash effects get a short 180 ms blend in, never a slow one. All controlled by Settings > Look > Transitions (Off disables every fade). Tests now default to fadeMs 0 so they stay deterministic; one test covers the ramp.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):

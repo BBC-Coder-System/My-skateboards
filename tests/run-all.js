@@ -23,7 +23,7 @@ async function boot(opts = {}) {
   pg.on('pageerror', e => perr.push(e.message));
   await pg.evaluateOnNewDocument(ls => {
     try { localStorage.clear(); for (const k in ls) localStorage.setItem(k, typeof ls[k] === 'string' && ls[k].startsWith('RAW:') ? ls[k].slice(4) : JSON.stringify(ls[k])); } catch (e) {}
-  }, opts.ls || {});
+  }, Object.assign({ fadeMs: 0 }, opts.ls || {}));
   await pg.goto(url.pathToFileURL(PAGE).href);
   const res = [];
   const p = {
@@ -879,6 +879,19 @@ test('contrast deepens darks and keeps peaks and hue; crossfade blends from the 
   p.ok(r.f0[0] > 190 && r.f1[0] > 20 && r.f1[0] < 180 && r.f2[2] > 195 && r.f2[0] < 5, 'crossfade goes red -> blue through the middle');
   p.ok(r.p0[0] < 5 && r.p1[0] > 30 && r.p1[0] < 95, 'power-on fades up from dark: ' + Math.round(r.p0[0]) + ' -> ' + Math.round(r.p1[0]));
 });
+test('power ramp: off fades the colour down and ends with the OFF packet; on sends a dark colour first, then ON, then fades up', async p => {
+  await p.connect(); await p.ev(() => setSolid('#00ff00')); await p.sleep(400); await p.clr();
+  await p.ev(() => togglePower()); await p.sleep(1400);
+  let c = await p.colours(); const all = (await p.pk()).map(x => x.h);
+  const g = c.map(x => parseInt(x.rgb.slice(2, 4), 16));
+  p.ok(g.length >= 4 && g[0] > g[g.length - 1] && g[g.length - 1] < 120, 'green fades down: ' + g.join(','));
+  p.ok(all[all.length - 1] === '7e0404000000ff00ef', 'the last packet is OFF');
+  p.eq(await p.ev(() => S.power), false, 'power is off after the ramp');
+  await p.clr(); await p.ev(() => togglePower()); await p.sleep(1400);
+  const s2 = (await p.pk()).map(x => x.h); c = await p.colours();
+  p.ok(/^7e070503020202/.test(s2[0]) && s2[1] === '7e0404f00001ff00ef', 'dark colour first, then ON: ' + s2.slice(0, 2).join(' '));
+  const g2 = c.map(x => parseInt(x.rgb.slice(2, 4), 16)); p.ok(g2.length >= 4 && g2[g2.length - 1] > g2[1] && g2[g2.length - 1] > 200, 'green fades up: ' + g2.join(','));
+}, { ls: { fadeMs: 450 } });
 // ============================================================ 11. STORAGE / DEFAULTS / MIGRATIONS / DLOG
 test('defaults with empty storage', async p => {
   const r = await p.ev(() => ({ fps: S.fps, slowGap: S.slowGap, musicFps: S.musicFps, beatDiv: S.beatDiv, levelMode: S.levelMode, fastWrite: S.fastWrite, musicFlag: S.musicFlag,

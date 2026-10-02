@@ -510,7 +510,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-02 look1';
+const APP_BUILD = '2026-10-02 look3';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -665,8 +665,9 @@ function fastColour(cur) {
   return !!S.smoothFx && (cur.group === 'flow' || cur.group === 'motion');
 }
 let dither = [0, 0, 0];
+let powerK = 1; // 0..1: fades colour frames during a power-on / power-off ramp
 function colorHex(rgb) {
-  const b = S.bright * S.bright; // perceptual curve: slider halfway looks about half as bright
+  const b = S.bright * S.bright * powerK; // perceptual curve: slider halfway looks about half as bright
   let out = [rgb[0] * b, rgb[1] * b, rgb[2] * b];
   const m = Math.max(...out);
   if (m >= DARK_FLOOR) lastLit = out;
@@ -2167,7 +2168,7 @@ async function runEffect(id, params) {
   const e = byId[id];
   if (!e) return; // a saved favourite for an effect that no longer exists
   const tok = ++effectTok; idle.stopAt = performance.now();
-  if (e.group !== 'flash' && e.needs !== 'audio' && S.current && S.current.kind === 'effect') startFade(S.fadeMs); else if (e.group !== 'flash') startFade(S.fadeMs); // picking something counts as activity: the new effect shows for the 'Start after' time before parking
+  startFade(e.group === 'flash' ? Math.min(S.fadeMs, 180) : S.fadeMs); // flash effects get a short, quick blend in (never a slow fade) // picking something counts as activity: the new effect shows for the 'Start after' time before parking
   dlog('effect', e.name, 500);
   if (e.needs === 'audio' && !(await ensureAudio())) return;
   if (e.needs === 'audio' && S.autoWanted && !auto.on && S.audioSrc === 'tempo') toggleAuto(true); // Auto-listen was on last time: this tap lets iOS start the mic again
@@ -2218,11 +2219,42 @@ function restoreOutput() {
   else { const e = byId[S.current.id]; if (e.start) e.start(S.current.params, scratch); startEngine(); }
 }
 function ensureOn() { if (!S.power) { S.power = true; sendCmd(CMD.on); renderPower(); } }
+// Power ramp: the strip's own ON / OFF commands are instant, so fade the colour (or the strip brightness for a built-in effect) ourselves.
+let rampT = null, rampDone = null;
+function finishRamp() { if (rampT) { clearInterval(rampT); rampT = null; } powerK = 1; const d = rampDone; rampDone = null; if (d) d(); }
+function rampPower(up, done) {
+  finishRamp();
+  const ms = S.fadeMs > 0 && chr ? Math.max(500, S.fadeMs * 1.3) : 0;
+  if (!ms) { done(); return; }
+  const kind = S.current && S.current.kind, hw = Math.max(3, Math.round(S.bright * 100)), t0 = performance.now();
+  rampDone = done; powerK = up ? 0 : 1;
+  rampT = setInterval(() => {
+    const x = Math.min(1, (performance.now() - t0) / ms), k = up ? smooth(x) : 1 - smooth(x);
+    powerK = k;
+    if (kind === 'builtin') sendCmd(CMD.bright(Math.max(3, Math.round(hw * k))));
+    else if (kind === 'solid') sendColor(hexToRgb(S.current.id));   // effects keep running and pick powerK up on their next frame
+    if (x >= 1) finishRamp();
+  }, 60);
+}
 function togglePower() {
-  S.power = !S.power; dlog('power', S.power ? 'on' : 'off');
-  sendCmd(S.power ? CMD.on : CMD.off);
-  if (S.power) { startFade(Math.max(S.fadeMs * 2, 0), true); restoreOutput(); } else { stopEngine(); pendingColor = null; slot.bright = null; slot.speed = null; document.getElementById('preview').style.background = '#000'; } // a frame computed just before must not follow the OFF command
-  renderPower();
+  const turnOn = !S.power;
+  if (rampT) { finishRamp(); return; } // a tap during a ramp just completes it
+  dlog('power', turnOn ? 'on' : 'off');
+  if (turnOn) {
+    S.power = true; powerK = S.fadeMs > 0 && chr ? 0 : 1;
+    if (powerK === 0) sendCmd(CMD.color(2, 2, 2));       // so the strip does not flash its old colour when it switches on
+    sendCmd(CMD.on); renderPower();
+    restoreOutput();
+    if (S.current && S.current.kind === 'builtin') S.hwBright = 100;
+    rampPower(true, () => { if (S.current && S.current.kind === 'builtin') { S.hwBright = -1; applyHwBright(); } });
+  } else {
+    rampPower(false, () => {
+      S.power = false; sendCmd(CMD.off);
+      stopEngine(); pendingColor = null; slot.bright = null; slot.speed = null; document.getElementById('preview').style.background = '#000'; // a frame computed just before must not follow the OFF command
+      renderPower();
+      if (S.current && S.current.kind === 'builtin') S.hwBright = -1;
+    });
+  }
 }
 function renderPower() { for (const id of ['btnPower', 'btnPowerRide']) { const b = document.getElementById(id); if (!b) continue; b.classList.toggle('off', !S.power); b.textContent = S.power ? 'ON' : 'OFF'; } }
 
