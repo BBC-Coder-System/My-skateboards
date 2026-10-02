@@ -892,16 +892,20 @@ test('power ramp: off fades the colour down and ends with the OFF packet; on sen
   p.ok(/^7e070503020202/.test(s2[0]) && s2[1] === '7e0404f00001ff00ef', 'dark colour first, then ON: ' + s2.slice(0, 2).join(' '));
   const g2 = c.map(x => parseInt(x.rgb.slice(2, 4), 16)); p.ok(g2.length >= 4 && g2[g2.length - 1] > g2[1] && g2[g2.length - 1] > 200, 'green fades up: ' + g2.join(','));
 }, { ls: { fadeMs: 450 } });
-test('built-in plus flashes: start sets the effect, flashes go out as colours, then the effect is re-sent; no black', async p => {
+test('built-in plus flashes: irregular random events; start/restore commands and no black', async p => {
   await p.connect();
-  for (const [id, prm] of [['lightning', { gap: 2 }], ['glitch', { every: 1 }], ['policechase', { every: 2 }], ['paparazzi', { every: 1.2 }]]) {
-    await p.clr(); await p.ev((id, prm) => runEffect(id, prm), id, prm);
-    await p.ev(() => { const st = scratch; st.next = performance.now() + 300; });   // first flash soon
+  for (const id of ['lightning', 'glitch', 'policechase', 'paparazzi']) {
+    await p.clr(); await p.ev(id => runEffect(id, { intensity: 1 }), id);
+    await p.ev(() => { scratch.nextOrg = performance.now() + 300; });   // first random event soon
     await p.sleep(3500);
     const all = (await p.pk()).map(x => x.h), modes = all.filter(h => /^7e0703/.test(h)), cols = await p.colours();
-    p.ok(modes.length >= 2, id + ': effect command sent at start and again after a flash (' + modes.length + ')');
+    p.ok(modes.length >= 2, id + ': effect command at start and again after a flash (' + modes.length + ')');
     p.ok(cols.length >= 2 && cols.every(c => c.rgb !== '000000'), id + ': flash colours sent, never pure black (' + cols.length + ')');
   }
+  // the event source has no fixed period: gaps between random events vary a lot
+  const gaps = await p.ev(() => { const st = {}, p2 = { intensity: 0.8 }; let T = 0; const real = performance.now.bind(performance); performance.now = () => T; const g = []; let last = 0; for (let i = 0; i < 200000; i++) { T += 10; if (bxEvent(st, T, p2) > 0) { g.push(T - last); last = T; } } performance.now = real; return g; });
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length, sd = Math.sqrt(gaps.reduce((a, b) => a + (b - mean) ** 2, 0) / gaps.length);
+  p.ok(gaps.length > 30 && sd / mean > 0.7, 'random gaps are irregular (std/mean ' + (sd / mean).toFixed(2) + ' over ' + gaps.length + ' events)');
 });
 test('Launch sweep: flashes on every Nth beat and restarts the chase; Heartbeat chase sends lub-dub brightness steps', async p => {
   await p.connect(); await p.clr();

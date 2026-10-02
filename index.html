@@ -511,7 +511,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-03 builtin1';
+const APP_BUILD = '2026-10-03 builtin2';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -790,6 +790,17 @@ function bxStep(st, now) {                  // true while a flash is playing
   st.fl = null; bxBase(st, st.base, st.flow); return false;
 }
 function bxBright(st, lvl = 1) { const b = Math.max(3, Math.min(100, Math.round(S.bright * 100 * lvl))); if (Math.abs(b - S.hwBright) >= 3 || (b <= 5 && b !== S.hwBright)) { S.hwBright = b; sendCmd(CMD.bright(b)); } }
+// What sets a flash off: randomness with no fixed period (heavy-tailed waits: long calms, sudden clusters, single hits), so it never settles into a pattern.
+//  - the road: a bump or hard push (peak acceleration since the last frame), a brake event; the harder, the stronger the strength returned;
+//  - randomness with long calms, sudden clusters and single hits (heavy-tailed waits, not 'every N seconds').
+// p.react: 0 both, 1 road only, 2 random only. p.intensity 0..1 makes everything more sensitive / more frequent.
+function bxEvent(st, now, p) {
+  const wait = () => Math.max(1200, Math.min(60000, (3500 + 22000 * (1 - p.intensity)) * Math.pow(-Math.log(1 - Math.random()), 1.4)));
+  if (st.nextOrg === undefined) st.nextOrg = now + wait();
+  if (now >= st.nextOrg) { st.nextOrg = now + (Math.random() < 0.3 ? 250 + Math.random() * 800 : wait()); return 0.25 + Math.random() * 0.75; }
+  return 0;
+}
+const BX_INT = { label: 'Intensity', min: 0, max: 1, step: 0.05, v: 0.5 };
 const BX_RUN = [[103, '7-colour running'], [97, 'Cyan running'], [93, 'Blue running'], [99, 'Purple running'], [89, 'Red running']];
 const bxLock = (p, st) => [CMD.mode(st.base || p.base), CMD.speed(st.flow || fireFlow(p))];
 function bxPreview(css) { document.getElementById('preview').style.background = css; }
@@ -1739,63 +1750,79 @@ const EFFECTS = [
       fireLife(t, p, st, st.base === 208 ? [255, 190, 0] : [255, 40, 0]);
     } },
   // ---- built-in plus phone flashes ----
-  { id: 'lightning', group: 'flow', name: 'Lightning chase', desc: 'A cyan chase, split by blue-white lightning',
+  { id: 'lightning', group: 'flow', name: 'Lightning chase', desc: 'A chase split by unpredictable lightning',
     params: { base: { type: 'select', label: 'Chase', v: 97, restart: true, options: [[97, 'Cyan running'], [93, 'Blue running'], [147, 'White-blue-white flow'], [163, 'Cyan-white-cyan flow']] },
-      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 40 }, gap: { label: 'Strike every (s)', min: 2, max: 15, step: 1, v: 7 }, strength: { label: 'Bolt strength', min: 0.5, max: 1, step: 0.05, v: 1 } },
-    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 2000 + Math.random() * 2500; },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 40 }, intensity: BX_INT, strength: { label: 'Bolt strength', min: 0.5, max: 1, step: 0.05, v: 1 } },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.nextOrg = undefined; },
     lockPackets: bxLock,
     drive: (t, p, st) => {
-      const now = performance.now();
+      const now = performance.now(), r = Math.random;
       if (bxStep(st, now)) return;
-      if (now >= st.next) {
-        const n = 1 + Math.floor(Math.random() * 3), seq = [], r = Math.random, bolt = scale([170, 205, 255], p.strength);
-        for (let i = 0; i < n; i++) { const last = i === n - 1; seq.push([last ? bolt : scale(bolt, 0.6), Math.max(bxMin(), (last ? 170 : 100) + r() * 70)]); if (!last) seq.push([[6, 12, 40], Math.max(bxMin(), 70 + r() * 90)]); }
-        bxFlash(st, seq, now); st.next = now + p.gap * (0.5 + r()) * 1000; return;
+      const k = bxEvent(st, now, p);
+      if (k > 0) {
+        const n = k > 0.7 ? 1 + Math.floor(r() * 4) : r() < 0.4 ? 2 : 1, seq = [], bolt = scale([170, 205, 255], p.strength);
+        for (let i = 0; i < n; i++) {
+          const last = i === n - 1, big = last || r() < 0.25;
+          seq.push([scale(bolt, big ? 0.7 + 0.3 * k : 0.35 + 0.3 * r()), Math.max(bxMin(), (big ? 120 + 130 * k : 90) + r() * 70)]);
+          if (!last) seq.push([[6, 12, 40], Math.max(bxMin(), 60 + r() * 140)]);
+        }
+        bxFlash(st, seq, now); return;
       }
       bxBright(st); bxPreview('linear-gradient(90deg,#064,#0cf,#064,#0cf)');
     } },
-  { id: 'glitch', group: 'flow', name: 'Glitch', desc: 'A colour wave that keeps hiccuping and rebooting',
+  { id: 'glitch', group: 'flow', name: 'Glitch', desc: 'A colour wave that glitches at random',
     params: { base: { type: 'select', label: 'Wave', v: 83, restart: true, options: [[83, '7-colour wave'], [85, 'R-G-B wave'], [87, 'Y-C-P wave'], [103, '7-colour running']] },
-      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 45 }, every: { label: 'Glitch every (s)', min: 1, max: 8, step: 0.5, v: 3 } },
-    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 1500 + Math.random() * 1500; },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 45 }, intensity: BX_INT },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.nextOrg = undefined; },
     lockPackets: bxLock,
     drive: (t, p, st) => {
       const now = performance.now(), r = Math.random;
       if (bxStep(st, now)) return;
-      if (now >= st.next) {
-        const wrong = () => hsv(r() * 360), dark = [6, 6, 10], m = () => Math.max(bxMin(), 100 + r() * 90), k = r();
-        const seq = k < 0.35 ? [[dark, m()]] : k < 0.7 ? [[wrong(), m()]] : [[dark, m()], [wrong(), m()], [dark, m()], [wrong(), m()]]; // blackout / wrong colour / stutter
-        bxFlash(st, seq, now); st.next = now + p.every * (0.4 + r() * 1.2) * 1000; return;
+      const k = bxEvent(st, now, p);
+      if (k > 0) {
+        const wrong = () => hsv(r() * 360), dark = [6, 6, 10], m = () => Math.max(bxMin(), 90 + r() * 170 * (0.5 + k)), kind = r(), seq = [];
+        if (kind < 0.22) seq.push([dark, m()]);                                                        // blackout
+        else if (kind < 0.42) seq.push([wrong(), m()]);                                                // wrong colour
+        else if (kind < 0.62) { for (let i = 0; i < 3; i++) seq.push([wrong(), Math.max(bxMin(), 90 + r() * 50)]); }  // colour smear
+        else if (kind < 0.82) { const n = 2 + Math.floor(r() * (2 + 3 * k)); for (let i = 0; i < n; i++) seq.push([i % 2 ? wrong() : dark, m()]); }   // stutter
+        else { seq.push([[255, 255, 255].map(v => v * (0.25 + 0.2 * r())), Math.max(bxMin(), 90)], [dark, m()], [wrong(), m()]); }                  // white tear, dark, wrong
+        bxFlash(st, seq, now); return;
       }
       bxBright(st); bxPreview('linear-gradient(90deg,#f0a,#0f8,#08f,#fd0)');
     } },
-  { id: 'policechase', group: 'flash', name: 'Police chase', desc: 'A running red-blue chase with red-blue bursts',
+  { id: 'policechase', group: 'flash', name: 'Police chase', desc: 'A red-blue chase with unpredictable bursts',
     params: { base: { type: 'select', label: 'Chase', v: 171, restart: true, options: [[171, 'Red dot in blue running'], [93, 'Blue running'], [89, 'Red running']] },
-      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 55 }, every: { label: 'Burst every (s)', min: 2, max: 10, step: 0.5, v: 4 }, pairs: { label: 'Red-blue pairs', min: 2, max: 6, step: 1, v: 3 } },
-    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 1500; },
-    lockPackets: bxLock,
-    drive: (t, p, st) => {
-      const now = performance.now();
-      if (bxStep(st, now)) return;
-      if (now >= st.next) {
-        const seq = [], ms = Math.max(bxMin(), 110);
-        for (let i = 0; i < p.pairs; i++) seq.push([[255, 0, 0], ms], [[0, 40, 255], ms]);
-        bxFlash(st, seq, now); st.next = now + p.every * (0.7 + Math.random() * 0.6) * 1000; return;
-      }
-      bxBright(st); bxPreview('linear-gradient(90deg,#f00,#00f,#f00,#00f)');
-    } },
-  { id: 'paparazzi', group: 'flow', name: 'Paparazzi', desc: 'A slow glow with soft camera flicks',
-    params: { base: { type: 'select', label: 'Glow', v: 165, restart: true, options: [[165, 'P-W-P flow'], [153, 'W-P-W flow'], [207, 'Blue marquee'], [210, 'Purple marquee']] },
-      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 25 }, every: { label: 'Flick every (s)', min: 1.2, max: 8, step: 0.2, v: 2.6 } },
-    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.next = performance.now() + 1500; },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 55 }, intensity: BX_INT },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.nextOrg = undefined; },
     lockPackets: bxLock,
     drive: (t, p, st) => {
       const now = performance.now(), r = Math.random;
       if (bxStep(st, now)) return;
-      if (now >= st.next) {
-        const w = [255, 244, 225], n = r() < 0.25 ? 2 + Math.floor(r() * 2) : 1, seq = [];   // sometimes a quick burst of 2-3
-        for (let i = 0; i < n; i++) { seq.push([scale(w, 0.5), bxMin()], [scale(w, 0.2), bxMin()]); if (i < n - 1) seq.push([[40, 20, 60], bxMin()]); }  // soft: never full white
-        bxFlash(st, seq, now); st.next = now + p.every * (0.6 + r() * 0.9) * 1000; return;
+      const k = bxEvent(st, now, p);
+      if (k > 0) {
+        const seq = [], n = 2 + Math.round(k * 4 * (0.6 + 0.8 * r())), startRed = r() < 0.5, single = r() < 0.2;   // sometimes just one colour, sometimes a long alternating burst
+        for (let i = 0; i < n; i++) {
+          const red = single ? startRed : (i % 2 === 0) === startRed;
+          seq.push([red ? [255, 0, 0] : [0, 40, 255], Math.max(bxMin(), 95 + r() * 90)]);
+          if (r() < 0.2) seq.push([[8, 4, 20], Math.max(bxMin(), 70)]);
+        }
+        bxFlash(st, seq, now); return;
+      }
+      bxBright(st); bxPreview('linear-gradient(90deg,#f00,#00f,#f00,#00f)');
+    } },
+  { id: 'paparazzi', group: 'flow', name: 'Paparazzi', desc: 'A slow glow with random camera flicks',
+    params: { base: { type: 'select', label: 'Glow', v: 165, restart: true, options: [[165, 'P-W-P flow'], [153, 'W-P-W flow'], [207, 'Blue marquee'], [210, 'Purple marquee']] },
+      flow: { label: 'Flow speed', min: 1, max: 100, step: 1, v: 25 }, intensity: BX_INT },
+    start: (p, st) => { bxBase(st, p.base, fireFlow(p)); st.nextOrg = undefined; },
+    lockPackets: bxLock,
+    drive: (t, p, st) => {
+      const now = performance.now(), r = Math.random;
+      if (bxStep(st, now)) return;
+      const k = bxEvent(st, now, p);
+      if (k > 0) {
+        const w = [255, 244, 225], n = 1 + (k > 0.5 ? Math.floor(r() * (1 + 3 * k)) : 0), seq = [];
+        for (let i = 0; i < n; i++) { seq.push([scale(w, 0.3 + 0.3 * r()), Math.max(bxMin(), 70 + r() * 60)], [scale(w, 0.12 + 0.1 * r()), bxMin()]); if (i < n - 1) seq.push([[40, 20, 60], Math.max(bxMin(), 50 + r() * 140)]); }   // soft, never full white
+        bxFlash(st, seq, now); return;
       }
       bxBright(st); bxPreview('linear-gradient(90deg,#609,#fff4,#609,#a4f)');
     } },

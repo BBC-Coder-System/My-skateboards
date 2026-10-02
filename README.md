@@ -220,6 +220,9 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 - Entrance: Settings > Look > Entrance = three quick flashes at the start of a phone-driven colour effect (not for built-in-driven or music effects).
 - Scenes added: Lightning chase, Glitch, Police chase. Flash segments last at least about 2 frames; first flash colour is sent before the brightness change so the old effect never blips. Real look on the strip is untested.
 
+### Random, not timed (build builtin2)
+- User feedback: 'every N seconds' sliders on Lightning chase, Glitch, Police chase and Paparazzi made them feel like a pattern. Replaced by one Intensity slider. Events now come from a heavy-tailed random wait (long calms, sudden clusters, single hits; tested: gap std/mean above 0.7) and every event is built fresh (random strike counts, glitch kinds: blackout / wrong colour / colour smear / stutter / white tear; police bursts of varying length, sometimes one colour only, with occasional dark gaps; paparazzi single flicks or short bursts). No sensor is used by these four; the motion sensor stays only in effects that need it (Airtime, Carve, Velocity, Engine rev, Jolt flash, brake light).
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):
