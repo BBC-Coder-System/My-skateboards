@@ -506,7 +506,7 @@ function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.p
 function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 
 /* ---------------- diagnostics log ---------------- */
-const APP_BUILD = '2026-10-02 sticky1';
+const APP_BUILD = '2026-10-02 beatonly1';
 const dlogBuf = load('dlog', []);
 const dstats = { cv: [], w: [], start: Date.now(), connAt: 0, drops: 0, timeouts: 0, lastKey: {} };
 function dctx() {
@@ -1051,6 +1051,7 @@ function sampleTempo(now) {
     tempo.lastIdx = idx; tempo.cur = idx; tempo.beatPeak = 0; tempo.committed = false;
     if ((((idx - hp) % div) + div) % div === 0) { // a hit: this beat makes the lights pulse
       audio.beatCount++; audio.lastBeat = now; flashBeat(); tempo.lastHitIdx = idx;
+      (dstats.hits || (dstats.hits = [])).push(now); while (dstats.hits.length > 40) dstats.hits.shift();
       tempo.strength = real ? (tempo.bar || [0.8, 0.8, 0.8, 0.8])[((idx % 4) + 4) % 4] : 1;
     }
   }
@@ -1364,6 +1365,7 @@ function autoApply(bpm, beatAt, conf, curFit) {
     S.bpm += (bpm - S.bpm) * 0.3;
     tempo.t0 = nowB - phB * (60000 / S.bpm);                                     // same phase at the new tempo, so no spurious beat
     const p = 60000 / S.bpm; let err = ((beatAt - tempo.t0) % p + p) % p; if (err > p / 2) err -= p;
+    (dstats.perr || (dstats.perr = [])).push([performance.now(), err]); while (dstats.perr.length > 30) dstats.perr.shift();
     tempo.t0 += err * 0.3;
     auto.cand = null; auto.candN = 0;
   } else {
@@ -1809,10 +1811,11 @@ const EFFECTS = [
   // ---- Music ----
   { id: 'mpulse', group: 'music', name: 'Volume pulse', desc: 'Brightness follows the music', needs: 'audio',
     params: { color: { type: 'color', v: '#a855f7' }, gain: { label: 'Sensitivity', min: 0.3, max: 3, step: 0.05, v: 1 },
-      glow: { label: 'Glow between', min: 0, max: 0.5, step: 0.05, v: 0.08 }, smooth: { label: 'Smoothness', min: 0, max: 1, step: 0.05, v: 0.5 } },
+      glow: { label: 'Glow between', min: 0, max: 0.5, step: 0.05, v: 0.08 }, smooth: { label: 'Smoothness', min: 0, max: 1, step: 0.05, v: 0.5 },
+      beatOnly: { type: 'select', label: 'Reacts to', v: 0, options: [[0, 'The whole music (loudness)'], [1, 'Beat only (steadier)']] } },
     fn: (t, p, st) => {
       const dt = frameDt(st);
-      st.v = follow(st.v || 0, Math.min(1, audio.level * p.gain), dt, 0.035, 0.08 + 0.32 * p.smooth);
+      st.v = follow(st.v || 0, Math.min(1, (+p.beatOnly ? audio.bass : audio.level) * p.gain), dt, 0.035, 0.08 + 0.32 * p.smooth);
       return scale(hexToRgb(p.color), p.glow + (1 - p.glow) * st.v ** 1.4);
     } },
   { id: 'mbeat', group: 'music', name: 'Beat hop', desc: 'Colour glides to a new hue on every beat', needs: 'audio',
@@ -2612,7 +2615,7 @@ setInterval(() => {
   const ag = S.audioSrc === 'mic' ? agc.mic : S.audioSrc === 'player' ? agc.play : (auto.on ? agc.tempo : null), f2 = v => (v || 0).toFixed(2);
   const cv = dstats.cv.filter(c => now - c[0] < 10000).map(c => c[1]);
   const sent = cv.length ? `${Math.round(cv.reduce((a, b) => a + b, 0) / cv.length)}/${Math.max(...cv)}` : '-';
-  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.audioSrc === 'tempo' ? S.bpm.toFixed(1) : (detBpm() ? detBpm().toFixed(1) + '(est)' : '-')} div=${S.audioSrc === 'tempo' ? beatDiv() : detDiv()} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent} writeMs=${wstat()} slowCmds/s=${((dstats.sl || []).filter(t => now - t < 10000).length / 10).toFixed(1)}` + (ag && ag.hist && ag.hist.length ? ` raw10sMax=${[1, 2, 3].map(i => f2(Math.max(...ag.hist.map(h => h[i])))).join('/')} raw10sAvg=${[1, 2, 3].map(i => f2(ag.hist.reduce((a, h) => a + h[i], 0) / ag.hist.length)).join('/')} ref=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + ` micGain=${S.micGainDb}dB pocket=${S.pocket ? 'on' : 'off'} ctx=${audio.ctx ? audio.ctx.state + '/' + (audio.ctx.baseLatency || 0).toFixed(3) : '-'} mic=${audio.micStream && audio.micStream.getAudioTracks()[0] ? audio.micStream.getAudioTracks()[0].readyState : '-'} jolts=${(motion.hits || []).filter(h => performance.now() - h < 10000).length}/10s section=${music.sec.state}` + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
+  dlog('music', `effect="${byId[S.current.id].name}" src=${S.audioSrc} bpm=${S.audioSrc === 'tempo' ? S.bpm.toFixed(1) : (detBpm() ? detBpm().toFixed(1) + '(est)' : '-')} div=${S.audioSrc === 'tempo' ? beatDiv() : detDiv()} auto=${auto.on ? (auto.locked ? 'locked conf=' + auto.conf.toFixed(1) : 'listening') : 'off'} offset=${S.beatOffset}ms beats/10s=${beats} level=${audio.level.toFixed(2)} bands=${audio.bass.toFixed(2)}/${audio.mid.toFixed(2)}/${audio.treble.toFixed(2)} pps=${pps.toFixed(1)} write=${S.fastWrite ? 'fast' : 'ack'} flag=0x${S.musicFlag.toString(16)} sentAvg/Max=${sent} writeMs=${wstat()} slowCmds/s=${((dstats.sl || []).filter(t => now - t < 10000).length / 10).toFixed(1)}` + (ag && ag.hist && ag.hist.length ? ` raw10sMax=${[1, 2, 3].map(i => f2(Math.max(...ag.hist.map(h => h[i])))).join('/')} raw10sAvg=${[1, 2, 3].map(i => f2(ag.hist.reduce((a, h) => a + h[i], 0) / ag.hist.length)).join('/')} ref=${f2(ag.bass)}/${f2(ag.mid)}/${f2(ag.treble)}` : '') + (() => { const h = (dstats.hits || []).filter(x => now - x < 10000), iv = h.slice(1).map((x, i) => x - h[i]), pe = (dstats.perr || []).filter(x => now - x[0] < 10000).map(x => x[1]); const md = a => a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : 0; return ` hitInt=${iv.length ? Math.round(md(iv)) + 'ms+-' + Math.round(Math.sqrt(iv.reduce((a, v) => a + (v - md(iv)) ** 2, 0) / iv.length)) : '-'} phaseErr=${pe.length ? 'avg ' + Math.round(pe.reduce((a, v) => a + v, 0) / pe.length) + 'ms abs ' + Math.round(pe.reduce((a, v) => a + Math.abs(v), 0) / pe.length) + 'ms' : '-'}`; })() + ` micGain=${S.micGainDb}dB pocket=${S.pocket ? 'on' : 'off'} ctx=${audio.ctx ? audio.ctx.state + '/' + (audio.ctx.baseLatency || 0).toFixed(3) : '-'} mic=${audio.micStream && audio.micStream.getAudioTracks()[0] ? audio.micStream.getAudioTracks()[0].readyState : '-'} jolts=${(motion.hits || []).filter(h => performance.now() - h < 10000).length}/10s section=${music.sec.state}` + (S.audioSrc === 'tempo' && auto.on && tempo.calm !== undefined ? ` calm=${tempo.calm.toFixed(2)}` : ''));
 }, 10000);
 document.getElementById('brightRide').value = Math.round(S.bright * 100);
 document.getElementById('brightRide').addEventListener('input', e => { const t = document.getElementById('bright'); t.value = e.target.value; t.dispatchEvent(new Event('input')); });

@@ -201,6 +201,10 @@ Setup: one speaker blasts the song at the phone in the pocket, a second speaker 
 - Evidence: video + log of Jackson Wang - Okay (true 120 BPM). Strip follows the app preview within one 30 fps frame (about 0 ms), so Bluetooth/queue are NOT the off-beat cause. The log showed Auto-listen locked 119.8-120.7 for about 2 min, then wandered 106, 104, 96, 131, 93 (confidence 1-3) with the song unchanged, then back to 117.6: a new tempo was accepted after only 3 similar guesses in a row, even at low confidence.
 - Fix: once locked, a different tempo needs 6 estimates in a row, each with confidence of at least 2.5 and the current tempo no longer fitting (curFit under 0.6); weak or ambiguous guesses subtract from the count. A real song change still takes about 6-8 s. Covered by a unit test of autoApply.
 
+### Beat-only Volume pulse and timing log (build beatonly1)
+- Video 6279 (120 fps) + log: tempo right (flash grid 1.003 s = 119.7 BPM) and average offset about 0 ms, but individual flashes scatter about +-100 ms. Suspected cause: Volume pulse adds mid/treble loudness (the mic hears almost no bass), not just the grid.
+- Volume pulse has a new setting Reacts to: Beat only (steadier) uses only the grid pulse. The 10 s music log line now has hitInt (median interval of fired pulses +- spread) and phaseErr (Auto-listen's measured beat phase error, avg and absolute), so off-beat can be measured without video.
+
 ## Next steps
 
 Agreed order (from "what can we take from LotusLamp X"):
