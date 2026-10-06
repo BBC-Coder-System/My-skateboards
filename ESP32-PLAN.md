@@ -45,3 +45,28 @@ Web app question: https pages (GitHub Pages) cannot call an http:// device or ws
 - Photo of the strip's connector/pads and of any text near the LEDs (chip and wire labels).
 - How the strip is powered now (5000 mAh USB-C bank through adapters) and whether to keep it.
 - Whether to keep the MELK controller in the loop or replace it fully.
+
+---
+## Update 2026-10-07: "smart board" design after three research reports (mostly from forum/doc summaries; NOT tested on hardware)
+
+User idea: the iPhone is only the remote. It plays YouTube Music / Spotify over Bluetooth to the BOARD (the board is a Bluetooth speaker), the board analyses the decoded audio for lights and plays the sound to a speaker.
+
+Findings
+- Chip: only the ORIGINAL ESP32 (WROOM-32 / WROVER) has classic Bluetooth audio. S2/S3/C3/C6/H2 do not. Prefer WROVER (PSRAM).
+- One ESP32 cannot be an A2DP sink and an A2DP source at the same time (forum threads and the pschatzmann ESP32-A2DP library offer one role only; unverified whether newest ESP-IDF changed this). So "phone -> board -> Bluetooth speaker" needs a second device.
+- Ways to get sound out of the board: (1) I2S DAC (PCM5102) + cable to a powered speaker/amp (simplest, lowest delay); (2) DAC + line-in Bluetooth transmitter plug (some have aptX LL); (3) two ESP32s (sink -> I2S -> source; DIY, clock drift/buffering); (4) Raspberry Pi class computer with BlueZ (heavier). Dual-role Bluetooth modules: no hobbyist-usable one found.
+- Delay: two Bluetooth hops are roughly 300-500 ms (estimate); the board knows the audio before it plays, so delay the LEDs/lights to match, with a calibration offset slider (about +-20-30 ms accuracy, estimate). iPhone sends SBC/AAC; the library decodes SBC (fine). Apply AVRCP volume in software.
+- Control: phone -> board over BLE GATT from Bluefy using the existing HTTPS web app (an Espressif example runs A2DP sink + BLE GATT server together). Keep Wi-Fi OFF while music plays (A2DP + Wi-Fi share the radio: dropouts). An https page cannot call an http board (mixed content).
+- Software: stock WLED has Bluetooth disabled and its audio input is hard-wired to I2S/ADC mic, so it is NOT a drop-in base. Custom firmware (Arduino-ESP32 or IDF): ESP32-A2DP (pschatzmann) + arduinoFFT/esp-dsp + FastLED or NeoPixelBus (I2S/DMA output to avoid LED flicker; RMT flickers under radio load) + effects ported/borrowed from WLED and from this web app. Fallback proven in a WLED forum thread: two ESP32s, one for A2DP + analysis sending events over UART, one running WLED.
+- WLED's own beat detection is basic (bin threshold, 100 ms gap; no tempo/drop). Our section/tempo code in index.html can be ported.
+- Brake light on a fixed deck mount: calibrate gravity at rest, project acceleration on the forward axis, low-pass 5-10 Hz, threshold about -0.15..-0.3 g for 80-150 ms with hysteresis, gate by sustained speed. Airtime = |a| below about 0.3 g for 100+ ms. IMU: MPU-6050 ok; ICM-42688/BMI270 quieter. Closest existing project: intentfulmotion hw-amp (ESP32 lighting controller with accelerometer; not inspected).
+- Power: strip worst case about 60 mA per LED (60-120 LEDs: 3.6-7 A) is far beyond a 5000 mAh bank; cap to about 1.5 A (FastLED setMaxPowerInVoltsAndMilliamps) = roughly 2-3.5 h (estimate). Some banks switch off at low current; inject power at both strip ends; capacitor, 74AHCT125 level shifter, fuse.
+- Effort: 2-4 weeks of evenings for beat/band effects plus brake light; tempo/drop polish open-ended. Biggest risks: radio coexistence, LED flicker under load, beat-detection quality, IMU vibration noise, speaker delay calibration.
+
+Staged plan (stop/go at each step)
+1. Bench: ESP32 WROVER as A2DP sink + BLE GATT from Bluefy; stream YouTube Music 10 min; go if clean audio and free heap above about 50 KB.
+2. Add PCM5102 DAC + cable to a speaker; add FFT and print beats; measure delay; decide transmitter plug vs cable.
+3. LEDs: level shifter, capacitor, fuse, I2S/DMA LED driver, capped brightness, run from the bank while measuring current and run time.
+4. Port effects + scenes; add IMU brake light/airtime; BLE remote in the web app.
+5. Enclosure, mount, 30-minute ride test.
+Question for the user before buying: wired speaker/amp acceptable for stage 2 (recommended), or must the sound reach the speaker wirelessly (then a transmitter plug, or two ESP32s)?
