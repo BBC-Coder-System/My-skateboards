@@ -32,4 +32,6 @@ Things to confirm before ordering
 - The power bank outputs a plain 5 V at 2-3 A on USB-A and does not shut off at low current.
 - The ESP32 board is the ORIGINAL chip (WROVER/WROOM), not S3/C3.
 
+Speaker notes (user, 2026-10-07): ordinary Bluetooth speakers with only a USB-C charging port (no aux input); two of the same model that can pair with each other (limit 2). Plan: pair the two speakers together first (TWS/stereo), then pair a single-link Bluetooth transmitter (TX mode, 3.5 mm line-in, USB powered) with the main speaker. No dual-link transmitter or aptX LL needed (the speakers are probably SBC only, roughly 150-250 ms per hop, estimate). Choose a transmitter whose reviews say it reconnects by itself on power-up. Test: both speakers play, reconnect after power cycle; expect a little extra delay from the speaker-to-speaker hop, handled by the light delay calibration.
+
 Build order (do not skip): (1) ESP32 on the table: Bluetooth audio from the phone + BLE control from Bluefy, 10 minutes of clean music; (2) add DAC and transmitter, listen on the speaker, measure delay; (3) LEDs with level shifter, capacitor, fuse, capped current from the bank; (4) IMU brake light; (5) solder, box and mount.
