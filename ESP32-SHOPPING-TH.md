@@ -1,0 +1,31 @@
+# ESP32 smart board: Shopee Thailand shopping list (2026-10-08)
+
+Prices are the prices shown on the Shopee search pages on 2026-10-08 (baht, change often). I did NOT add anything to a cart or buy anything. Each link opens the product page (https://shopee.co.th/product/SHOP_ID/ITEM_ID); choose the right variant on the page. Items marked [overseas] ship from abroad (slower). Check the shop rating and recent reviews before paying.
+
+Design reminder (see ESP32-PLAN.md / ESP32-SHOPPING.md): original ESP32 WROVER board (Bluetooth audio from the phone, BLE remote from Bluefy) -> PCM5102 DAC -> short 3.5 mm cable -> Bluetooth transmitter plug -> the paired speakers. WS2812B strip through a level shifter. MPU-6050 for the brake light. 10000 mAh bank for power.
+
+| # | Part | Pick | Price | Link | Check on the page |
+|---|------|------|-------|------|-------------------|
+| 1 | ESP32 board, ORIGINAL chip, with 8 MB PSRAM | ESP32-DevKitC ESP32-WROVER USB Type-C, PSRAM 8MB (Phuket) | 288 | https://shopee.co.th/product/39044974/26023625600 | Must say WROVER (NOT S3/C3). Backup, no PSRAM: ESP-WROOM-32 Node32s 178 baht https://shopee.co.th/product/117988183/2053436592 . Avoid the WROVER-IE (external antenna) at 120 baht unless you add an antenna. |
+| 2 | Motion sensor | Module GY-521 MPU-6050 (Bangkok) | 67 | https://shopee.co.th/product/634411534/43473246555 | Alternative 75 baht https://shopee.co.th/product/92169387/7846243725 |
+| 3 | I2S DAC | PCM5102 DAC GY-PCM5102 I2S (Bangkok) | 104 | https://shopee.co.th/product/603297687/45162675538 | Cheaper [overseas] 80 baht https://shopee.co.th/product/139632720/21620385205 |
+| 4 | Bluetooth transmitter plug (TX/RX, USB powered, 3.5 mm) | UGREEN 2-in-1 transmitter/receiver 5.1, USB to AUX (Bangkok) | 179 | https://shopee.co.th/product/10822/15450933039 | Cheaper options: Essager 5.3 123 baht https://shopee.co.th/product/1336933815/28211040276 , HOCO E151 158 baht https://shopee.co.th/product/63204119/56903905617 . Read reviews for: stays paired to the speaker after power-off/on, and TX mode switch. |
+| 5 | Short 3.5 mm audio cable | TRANYOO E3 right-angle 3.5 mm cable (Samut Sakhon) | 47 | https://shopee.co.th/product/1576600151/44029838276 | Pick the shortest length variant. |
+| 6 | LED strip WS2812B 5 V, 60 LEDs/m, 2 m | WS2812/WS2812B Neopixel 60 pixels/m, IP30 or IP67 variants (Chiang Mai) | 129 (1 m, check the 2 m variant price) | https://shopee.co.th/product/5641091/18092184431 | Pick 2 m and IP30 (bare = brightest; IP67 adds a sleeve). Alternative from Pathum Thani, 2 m WS2812B 60 LED/m, 205 baht https://shopee.co.th/product/1219087673/29650594166 . Confirm it says WS2812B and 5 V. |
+| 7 | Level shifter 74AHCT125 | SN74AHCT125N, pack of 5, DIP-14 [overseas] | 55 | https://shopee.co.th/product/190910272/45216855533 | Needs a 14-pin IC socket on the perfboard. In Thailand only an 8-channel bidirectional shifter module was found (38 baht https://shopee.co.th/product/1272136510/27756009383 ); I'd rather use the 74AHCT125 for WS2812B data, so ask your dad if he has a 74HCT245/74AHCT125. |
+| 8 | Capacitor 1000 uF 16 V | Pack of 5 electrolytic 1000uF (Bangkok) | 20 | https://shopee.co.th/product/1688451461/41728558385 | Choose the 16V variant. Alternative 15 baht https://shopee.co.th/product/97240791/2869953587 |
+| 9 | Fuse + holder with wires | Inline fuse holder wire 16/18 AWG with fuse (Samut Prakan) | 21 | https://shopee.co.th/product/38654794/23875553145 | Choose a 3 A fuse variant if offered (5 A at most). |
+| 10 | Power bank 10000 mAh, USB-A out | Orsen by Eloop 10000/20000 mAh (Bangkok) | 599 | https://shopee.co.th/product/375419813/15491998680 | Pick a 10000 mAh model that has a USB-A output (e.g. E53/E43; check the photos). Budget alternative Eloop E33 10000 mAh, 212-349 baht (12 W, 5 V 2.4 A) https://shopee.co.th/product/374944741/24171987775 . I cannot tell from here whether any of them switches off at low current: test with the USB tester. |
+| 11 | USB-A female breakout with screw terminals | USB 2.0 Type-A connector, screw terminal (Bangkok) | 51 | https://shopee.co.th/product/1708335892/45217958126 | Choose the FEMALE variant. |
+| 12 | JST-SM 3-pin plug pair with wire (strip connector) | JST SM 3-pin male-female cable 20 cm (Phuket) | 15 | https://shopee.co.th/product/39044974/6053907315 | Buy 2-3 sets (strip start, strip far end for power, spare). |
+| 13 | Perfboard | PCB 5x7 / 7x9 / 9x15 cm perfboard (Khon Kaen) | 15 | https://shopee.co.th/product/459630043/13651193245 | Choose about 9x15 cm so the ESP32 board and modules fit on sockets. |
+| 14 | Female header sockets 2.54 mm | Single-row female header (Bangkok) | 15 | https://shopee.co.th/product/57748591/18094482913 | Get a few 1x15/1x20 strips for the ESP32 and module sockets. |
+| 15 | Enclosure 100x68x50 mm, waterproof | Plastic box 100x68x50 mm (Rayong) | 45 | https://shopee.co.th/product/76886102/16363643515 | Alternative 57 baht https://shopee.co.th/product/459630043/21387544710 . Drill small holes for the cables; add cable glands if wanted. |
+| 16 | Silicone wire 16-24 AWG (cut by the metre) | Silicone wire, flexible (Rayong) | about 8-14 per metre | https://shopee.co.th/product/2276019/8212232398 | Get red/black/another colour in 18 AWG for power (strip power runs also to the far end) and 22-24 AWG for signals. |
+| 17 | USB power meter (recommended) | KWS-10VA USB tester (Bangkok) | 99 | https://shopee.co.th/product/117988183/2664975166 | Measures real current and voltage drop. |
+
+Estimated total (rough, with the cheaper picks): about 1,800-2,100 baht (about 55-60 USD). Pick the Orsen bank and the 2 m WS2812B variant and it is about 2,000-2,300 baht. Add a 100-300 baht margin for shipping and for parts you must replace.
+
+Not found/not bought here: heat shrink tubing and VHB/foam tape (any hardware store), IC socket for the 74AHCT125, a soldering iron and multimeter (borrow from the electrician dad).
+
+Open checks before paying: (1) the strip listing really names WS2812B and 5 V and has the 2 m variant; (2) the ESP32 listing says WROVER and the original chip; (3) the bank has USB-A and does not shut off with a small load; (4) the transmitter reconnects to the speaker after a power cycle (read reviews).
