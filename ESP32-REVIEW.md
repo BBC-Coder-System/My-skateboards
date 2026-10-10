@@ -121,3 +121,10 @@ CHANGE: (1) enclosure ~150x80x30 mm flat plastic (deck underside est. 75-90 mm a
 COST: list ~1,800-2,000 THB; with additions ~2,100-2,500 THB (~65-78 USD), in budget; all Thai Shopee except 74AHCT125 (overseas; fallback 1N4001 diode trick).
 UX guide items: start order speakers+TWS -> board switch -> UGREEN reconnects -> iPhone reconnects (est. 3-8 s); forget speakers on iPhone; charge by removing bank; added weight ~450 g; no heat issue but keep bank out of sun/car.
 OPEN QUESTIONS: (1) deck type + side photo + deck-underside-to-ground height at middle + wheelbase; (2) where speakers ride; (3) OK with short desk-test phase before mounting; (4) OK with police/strobes only when parked; (5) after parts arrive: does UGREEN pair with TWS as stereo or only main speaker.
+
+## User decisions (2026-10-10)
+- Desk test first: YES (solder now, test on the table, mount after the 30-minute run passes).
+- Speakers ride ON THE RIDER (clipped to a belt or strap). So a board-mounted mic would barely hear them: build-2 mic auto-sync is low value; tap calibration is the main method.
+- Strip: BARE strip in a clear aluminium channel angled 30-45 degrees (add the channel, about 100-200 THB est., 2 m, with end caps and screws; the strip variant can be IP30 bare).
+- Strobe/Police: ALLOWED WHILE RIDING (user's choice). Firmware keeps a setting for it; default ride scene stays non-strobing.
+- Still needed before ordering: deck type, side photo, deck-underside-to-ground height in the middle, distance between the trucks.
