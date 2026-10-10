@@ -124,7 +124,8 @@ OPEN QUESTIONS: (1) deck type + side photo + deck-underside-to-ground height at 
 
 ## User decisions (2026-10-10)
 - Desk test first: YES (solder now, test on the table, mount after the 30-minute run passes).
-- Speakers ride ON THE RIDER (clipped to a belt or strap). So a board-mounted mic would barely hear them: build-2 mic auto-sync is low value; tap calibration is the main method.
+- Speakers ride ON THE RIDER (clipped to a belt or strap). Proposed: INMP441 mic in the box for automatic delay calibration (hold a speaker next to the board, board plays a click and measures the round trip), not for live listening.
 - Strip: BARE strip in a clear aluminium channel angled 30-45 degrees (add the channel, about 100-200 THB est., 2 m, with end caps and screws; the strip variant can be IP30 bare).
 - Strobe/Police: ALLOWED WHILE RIDING (user's choice). Firmware keeps a setting for it; default ride scene stays non-strobing.
-- Still needed before ordering: deck type, side photo, deck-underside-to-ground height in the middle, distance between the trucks.
+- Deck underside to ground: about 100 mm (user, 2026-10-10). A 30 mm flat box leaves about 70 mm clearance.
+- Still needed before ordering: deck type, side photo, distance between the trucks.
